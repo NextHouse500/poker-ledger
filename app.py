@@ -169,7 +169,7 @@ if not st.session_state.ledger.empty:
     
     col1, col2 = st.columns([1, 2])
     with col1:
-        st.subheader("구글 시트 장부 기록 (당일 순이익)")
+        st.subheader("가계부")
         try:
             styled_df = display_df.style.format("{:,}").map(color_profit_loss)
         except AttributeError:
@@ -178,7 +178,7 @@ if not st.session_state.ledger.empty:
         st.dataframe(styled_df, use_container_width=True)
         
     with col2:
-        st.subheader("📈 플레이어별 누적 수익 현황")
+        st.subheader("📈 플레이어별 누적 금액 변화")
         
         # ★ 수정됨: 그래프를 그릴 때는 sort_key가 0보다 큰(총 누적 제외) 실제 회차만 필터링
         chart_base_df = temp_df[temp_df['sort_key'] > 0].copy()
