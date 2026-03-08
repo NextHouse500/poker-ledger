@@ -88,12 +88,12 @@ if 'ledger' not in st.session_state:
         st.session_state.ledger = pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황"])
 
 # --- 2. 정산 계산기 ---
-st.header("1. 새 회차 정산 및 추가")
+st.header("정산 및 추가")
 
 players = ["고", "손", "장", "전", "황"]
 
 with st.form("input_form"):
-    st.write("각 플레이어 (당일 순이익/손해 숫자만 입력)")
+    st.write("순 이익만 입력")
     cols = st.columns(len(players))
     
     raw_amounts_str = {}
@@ -155,7 +155,7 @@ if calculate_btn and client:
 st.divider()
 
 # --- 3. 기록 및 그래프 ---
-st.header("2. 전체 누적 기록 및 그래프")
+st.header("전체 누적 및 그래프")
 
 if not st.session_state.ledger.empty:
     temp_df = st.session_state.ledger.copy()
