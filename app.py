@@ -206,3 +206,8 @@ if not st.session_state.ledger.empty:
             st.info("아직 누적 그래프를 그릴 회차 데이터가 없습니다.")
 else:
     st.info("아직 기록된 데이터가 없습니다. 위에서 새 회차를 등록해 보세요.")
+
+st.divider()  # 표와 그래프 아래에 구분선 추가
+
+# 원본 구글 시트로 연결되는 버튼 생성
+st.link_button("📊 원본 구글 시트에서 데이터 확인하기", "https://docs.google.com/spreadsheets/d/1fg8Hkgfb7LQx0AWJ9p9IyvWnuoOzYHqSgx7SdWZp47k/edit?gid=0#gid=0")
