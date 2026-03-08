@@ -52,7 +52,7 @@ def load_data_from_sheet(client):
             df = pd.DataFrame(data, columns=["회차", "고", "손", "장", "전", "황"])
             
             # '총 누적' 행이거나, 아직 플레이하지 않아서 '고' 데이터가 비어있지 않은 행만 남김
-            df = df[(df['회차'] == '총 누적') | (df['고'].astype(str).str.strip() != '')]
+            df = df[(df['회차'] == '계') | (df['고'].astype(str).str.strip() != '')]
             
             # 숫자 계산을 위해 콤마 제거 및 정수 변환
             for col in ["고", "손", "장", "전", "황"]:
@@ -77,7 +77,7 @@ def color_profit_loss(val):
 
 # 웹페이지 기본 설정
 st.set_page_config(page_title="포커 기록장", layout="wide")
-st.title("🃏 포커 게임 정산 및 기록장")
+st.title("🃏 가계부")
 
 client = get_gsheet_client()
 
@@ -169,7 +169,7 @@ if not st.session_state.ledger.empty:
     
     col1, col2 = st.columns([1, 2])
     with col1:
-        st.subheader("가계부")
+        st.subheader("회차 별")
         try:
             styled_df = display_df.style.format("{:,}").map(color_profit_loss)
         except AttributeError:
