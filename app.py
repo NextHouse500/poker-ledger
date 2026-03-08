@@ -93,7 +93,7 @@ st.header("정산 및 추가")
 players = ["고", "손", "장", "전", "황"]
 
 with st.form("input_form"):
-    st.write("순 이익만 입력")
+    st.write("순 이익만 입력 (보정값X)")
     cols = st.columns(len(players))
     
     raw_amounts_str = {}
@@ -210,4 +210,5 @@ else:
 st.divider()  # 표와 그래프 아래에 구분선 추가
 
 # 원본 구글 시트로 연결되는 버튼 생성
+
 st.link_button("📊 원본 구글 시트에서 데이터 확인하기", "https://docs.google.com/spreadsheets/d/1fg8Hkgfb7LQx0AWJ9p9IyvWnuoOzYHqSgx7SdWZp47k/edit?gid=0#gid=0")
