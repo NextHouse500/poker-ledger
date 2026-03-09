@@ -3,6 +3,7 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import altair as alt
+from datetime import datetime, timedelta  # ★ 시간 기록을 위해 추가된 모듈
 
 # --- 1. 구글 시트 연동 설정 ---
 CREDENTIALS_FILE = "credentials.json"
@@ -37,24 +38,20 @@ def load_data_from_sheet(client):
         values = sheet.get_all_values()
         
         if len(values) > 1:
-            # 2행(합계 수식이 있는 줄, 인덱스 1)부터 끝까지 가져옴
+            # 웹 화면에는 A~F열까지만 가져오도록 유지 (G열 시간은 숨김)
             data = [row[:6] for row in values[1:]]
             
-            # 부족한 열이 있을 경우 빈 문자열로 채움
             for r in data:
                 while len(r) < 6:
                     r.append("")
                     
-            # 2행(data[0])의 A열 이름을 "총 누적"으로 강제 지정해서 보기 좋게 만듦
             if len(data[0]) > 0:
                 data[0][0] = "총 누적"
                     
             df = pd.DataFrame(data, columns=["회차", "고", "손", "장", "전", "황"])
             
-            # '총 누적' 행이거나, 아직 플레이하지 않아서 '고' 데이터가 비어있지 않은 행만 남김
             df = df[(df['회차'] == '계') | (df['고'].astype(str).str.strip() != '')]
             
-            # 숫자 계산을 위해 콤마 제거 및 정수 변환
             for col in ["고", "손", "장", "전", "황"]:
                 df[col] = df[col].astype(str).str.replace(',', '', regex=False)
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
@@ -66,7 +63,6 @@ def load_data_from_sheet(client):
         st.error(f"데이터를 불러오는 중 문제가 발생했습니다: {e}")
         return pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황"])
 
-# 조건부 서식 함수
 def color_profit_loss(val):
     if isinstance(val, (int, float)):
         if val > 0:
@@ -75,10 +71,9 @@ def color_profit_loss(val):
             return 'background-color: #ffebee; color: #000000;'
     return ''
 
-# ★ 추가된 송금 가이드 계산 함수
 def calculate_transfers(adjusted_amounts):
-    debtors = []  # 돈을 잃은 사람 (보낼 사람)
-    creditors = [] # 돈을 딴 사람 (받을 사람)
+    debtors = []
+    creditors = []
     
     for player, amount in adjusted_amounts.items():
         if amount < 0:
@@ -86,7 +81,6 @@ def calculate_transfers(adjusted_amounts):
         elif amount > 0:
             creditors.append([player, amount])
             
-    # 큰 금액부터 매칭하기 위해 내림차순 정렬
     debtors.sort(key=lambda x: x[1], reverse=True)
     creditors.sort(key=lambda x: x[1], reverse=True)
     
@@ -97,18 +91,15 @@ def calculate_transfers(adjusted_amounts):
         debtor_name, debt_amount = debtors[i]
         creditor_name, credit_amount = creditors[j]
         
-        # 보낼 금액과 받을 금액 중 작은 값을 교환
         transfer_amount = min(debt_amount, credit_amount)
         if transfer_amount == 0:
             break
             
         transactions.append(f"💸 **{debtor_name}** ➡️ **{creditor_name}** : {transfer_amount:,}원")
         
-        # 잔액 업데이트
         debtors[i][1] -= transfer_amount
         creditors[j][1] -= transfer_amount
         
-        # 정산 끝난 사람은 다음 사람으로 넘김
         if debtors[i][1] == 0:
             i += 1
         if creditors[j][1] == 0:
@@ -116,7 +107,6 @@ def calculate_transfers(adjusted_amounts):
             
     return transactions if transactions else ["정산할 금액이 없습니다."]
 
-# 웹페이지 기본 설정
 st.set_page_config(page_title="포커 기록장", layout="wide")
 st.title("🃏 가계부")
 
@@ -165,7 +155,7 @@ if calculate_btn and client:
         
         target_row = None
         for i, row in enumerate(all_values):
-            if i < 2: continue # 0(헤더), 1(총 누적 수식) 행은 무조건 건너뜀
+            if i < 2: continue
             
             if len(row) < 2 or str(row[1]).strip() == "":
                 target_row = i + 1
@@ -174,23 +164,27 @@ if calculate_btn and client:
         if target_row is None:
             target_row = max(len(all_values) + 1, 3)
 
-        final_values = [adjusted_amounts[p] for p in players]
+        # ★ 현재 한국 시간(KST) 구하기
+        now_kst = (datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M:%S')
+        
+        # 구글 시트에 들어갈 최종 데이터 (플레이어 점수들 + 맨 마지막에 시간)
+        final_values_with_time = [adjusted_amounts[p] for p in players] + [now_kst]
             
         with st.spinner("구글 시트에 당일 순이익 저장 중..."):
             current_row_val = all_values[target_row-1] if target_row <= len(all_values) else []
             has_round_name = len(current_row_val) > 0 and str(current_row_val[0]).strip() != ""
             
+            # ★ 구글 시트 저장 범위를 G열까지 확장
             if not has_round_name:
                 round_str = f"{target_row-2}회차"
-                sheet.update(values=[[round_str] + final_values], range_name=f"A{target_row}:F{target_row}")
+                sheet.update(values=[[round_str] + final_values_with_time], range_name=f"A{target_row}:G{target_row}")
             else:
-                sheet.update(values=[final_values], range_name=f"B{target_row}:F{target_row}")
+                sheet.update(values=[final_values_with_time], range_name=f"B{target_row}:G{target_row}")
             
             st.session_state.ledger = load_data_from_sheet(client)
             
         st.success("해당 회차의 당일 순이익이 구글 시트에 성공적으로 저장되었습니다!")
         
-        # ★ 방금 보정된 금액으로 송금 가이드 출력
         st.info("### 🔔 이번 회차 송금 가이드")
         transfers = calculate_transfers(adjusted_amounts)
         for t in transfers:
@@ -207,11 +201,9 @@ st.header("전체 누적 및 그래프")
 if not st.session_state.ledger.empty:
     temp_df = st.session_state.ledger.copy()
     
-    # '총 누적' 글자는 숫자가 없어서 0이 됨 -> 맨 위로 정렬됨
     temp_df['sort_key'] = temp_df['회차'].str.extract(r'(\d+)', expand=False).fillna(0).astype(int)
     temp_df = temp_df.sort_values('sort_key')
     
-    # 표(Table)에 보여줄 전체 데이터 ('총 누적' 포함)
     display_df = temp_df.drop(columns=['sort_key']).set_index('회차').fillna(0)
     
     col1, col2 = st.columns([1, 2])
@@ -227,11 +219,9 @@ if not st.session_state.ledger.empty:
     with col2:
         st.subheader("📈 플레이어별 누적 금액 변화")
         
-        # 그래프를 그릴 때는 sort_key가 0보다 큰(총 누적 제외) 실제 회차만 필터링
         chart_base_df = temp_df[temp_df['sort_key'] > 0].copy()
         
         if not chart_base_df.empty:
-            # 실제 회차 데이터로만 누적 계산
             calc_df = chart_base_df.drop(columns=['sort_key']).set_index('회차').fillna(0)
             cumulative_df = calc_df.cumsum()
             
@@ -254,7 +244,7 @@ if not st.session_state.ledger.empty:
 else:
     st.info("아직 기록된 데이터가 없습니다. 위에서 새 회차를 등록해 보세요.")
 
-st.divider()  # 표와 그래프 아래에 구분선 추가
+st.divider()
 
 # 원본 구글 시트로 연결되는 버튼 생성
 st.link_button("📊 원본 구글 시트에서 데이터 확인하기", "https://docs.google.com/spreadsheets/d/1fg8Hkgfb7LQx0AWJ9p9IyvWnuoOzYHqSgx7SdWZp47k/edit?gid=0#gid=0")
