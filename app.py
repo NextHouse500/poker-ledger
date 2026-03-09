@@ -37,7 +37,7 @@ def load_data_from_sheet(client):
         values = sheet.get_all_values()
         
         if len(values) > 1:
-            # ★ 수정됨: 2행(합계 수식이 있는 줄, 인덱스 1)부터 끝까지 가져옴
+            # 2행(합계 수식이 있는 줄, 인덱스 1)부터 끝까지 가져옴
             data = [row[:6] for row in values[1:]]
             
             # 부족한 열이 있을 경우 빈 문자열로 채움
@@ -74,6 +74,47 @@ def color_profit_loss(val):
         elif val < 0:
             return 'background-color: #ffebee; color: #000000;'
     return ''
+
+# ★ 추가된 송금 가이드 계산 함수
+def calculate_transfers(adjusted_amounts):
+    debtors = []  # 돈을 잃은 사람 (보낼 사람)
+    creditors = [] # 돈을 딴 사람 (받을 사람)
+    
+    for player, amount in adjusted_amounts.items():
+        if amount < 0:
+            debtors.append([player, abs(amount)])
+        elif amount > 0:
+            creditors.append([player, amount])
+            
+    # 큰 금액부터 매칭하기 위해 내림차순 정렬
+    debtors.sort(key=lambda x: x[1], reverse=True)
+    creditors.sort(key=lambda x: x[1], reverse=True)
+    
+    transactions = []
+    i, j = 0, 0
+    
+    while i < len(debtors) and j < len(creditors):
+        debtor_name, debt_amount = debtors[i]
+        creditor_name, credit_amount = creditors[j]
+        
+        # 보낼 금액과 받을 금액 중 작은 값을 교환
+        transfer_amount = min(debt_amount, credit_amount)
+        if transfer_amount == 0:
+            break
+            
+        transactions.append(f"💸 **{debtor_name}** ➡️ **{creditor_name}** : {transfer_amount:,}원")
+        
+        # 잔액 업데이트
+        debtors[i][1] -= transfer_amount
+        creditors[j][1] -= transfer_amount
+        
+        # 정산 끝난 사람은 다음 사람으로 넘김
+        if debtors[i][1] == 0:
+            i += 1
+        if creditors[j][1] == 0:
+            j += 1
+            
+    return transactions if transactions else ["정산할 금액이 없습니다."]
 
 # 웹페이지 기본 설정
 st.set_page_config(page_title="포커 기록장", layout="wide")
@@ -149,6 +190,12 @@ if calculate_btn and client:
             
         st.success("해당 회차의 당일 순이익이 구글 시트에 성공적으로 저장되었습니다!")
         
+        # ★ 방금 보정된 금액으로 송금 가이드 출력
+        st.info("### 🔔 이번 회차 송금 가이드")
+        transfers = calculate_transfers(adjusted_amounts)
+        for t in transfers:
+            st.write(t)
+        
     except ValueError:
         st.error("금액은 숫자로만 입력해주세요! (예: 10000, -5000)")
 
@@ -180,7 +227,7 @@ if not st.session_state.ledger.empty:
     with col2:
         st.subheader("📈 플레이어별 누적 금액 변화")
         
-        # ★ 수정됨: 그래프를 그릴 때는 sort_key가 0보다 큰(총 누적 제외) 실제 회차만 필터링
+        # 그래프를 그릴 때는 sort_key가 0보다 큰(총 누적 제외) 실제 회차만 필터링
         chart_base_df = temp_df[temp_df['sort_key'] > 0].copy()
         
         if not chart_base_df.empty:
@@ -210,5 +257,4 @@ else:
 st.divider()  # 표와 그래프 아래에 구분선 추가
 
 # 원본 구글 시트로 연결되는 버튼 생성
-
 st.link_button("📊 원본 구글 시트에서 데이터 확인하기", "https://docs.google.com/spreadsheets/d/1fg8Hkgfb7LQx0AWJ9p9IyvWnuoOzYHqSgx7SdWZp47k/edit?gid=0#gid=0")
