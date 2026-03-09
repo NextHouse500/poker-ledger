@@ -120,7 +120,7 @@ if 'ledger' not in st.session_state:
         st.session_state.ledger = pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "날짜"])
 
 # --- 2. 정산 계산기 ---
-st.header("1. 정산 및 추가")
+st.header("정산 및 추가")
 
 players = ["고", "손", "장", "전", "황"]
 
@@ -188,7 +188,7 @@ if calculate_btn and client:
 st.divider()
 
 # --- 3. 최근 회차 정산 요약 (모두가 볼 수 있는 고정 영역) ---
-st.header("2. 📌 가장 최근 회차 정산 결과")
+st.header("최근 회차 정산 결과")
 
 if not st.session_state.ledger.empty:
     valid_rounds_df = st.session_state.ledger[st.session_state.ledger['회차'] != '총 누적']
@@ -202,7 +202,7 @@ if not st.session_state.ledger.empty:
         last_date = last_row.get('날짜', '')
         date_str = f" ⏱️({last_date})" if str(last_date).strip() != '' else ""
         
-        st.subheader(f"🔔 [{last_round_name}] 보정 결과 및 송금 가이드{date_str}")
+        st.subheader(f"[{last_round_name}] 보정 결과 및 송금액 {date_str}")
         
         col_last1, col_last2 = st.columns([1, 1])
         
@@ -226,7 +226,7 @@ else:
 st.divider()
 
 # --- 4. 기록 및 그래프 ---
-st.header("3. 전체 누적 및 그래프")
+st.header("전체 누적 및 그래프")
 
 if not st.session_state.ledger.empty:
     temp_df = st.session_state.ledger.copy()
@@ -279,3 +279,4 @@ else:
 st.divider()
 
 st.link_button("📊 원본 구글 시트에서 데이터 확인하기", "https://docs.google.com/spreadsheets/d/1fg8Hkgfb7LQx0AWJ9p9IyvWnuoOzYHqSgx7SdWZp47k/edit?gid=0#gid=0")
+
