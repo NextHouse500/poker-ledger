@@ -3,7 +3,7 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import altair as alt
-from datetime import datetime, timedelta  # ★ 시간 기록을 위해 추가된 모듈
+from datetime import datetime, timedelta
 
 # --- 1. 구글 시트 연동 설정 ---
 CREDENTIALS_FILE = "credentials.json"
@@ -38,7 +38,6 @@ def load_data_from_sheet(client):
         values = sheet.get_all_values()
         
         if len(values) > 1:
-            # 웹 화면에는 A~F열까지만 가져오도록 유지 (G열 시간은 숨김)
             data = [row[:6] for row in values[1:]]
             
             for r in data:
@@ -50,7 +49,7 @@ def load_data_from_sheet(client):
                     
             df = pd.DataFrame(data, columns=["회차", "고", "손", "장", "전", "황"])
             
-            df = df[(df['회차'] == '계') | (df['고'].astype(str).str.strip() != '')]
+            df = df[(df['회차'] == '총 누적') | (df['고'].astype(str).str.strip() != '')]
             
             for col in ["고", "손", "장", "전", "황"]:
                 df[col] = df[col].astype(str).str.replace(',', '', regex=False)
@@ -119,7 +118,7 @@ if 'ledger' not in st.session_state:
         st.session_state.ledger = pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황"])
 
 # --- 2. 정산 계산기 ---
-st.header("정산 및 추가")
+st.header("1. 정산 및 추가")
 
 players = ["고", "손", "장", "전", "황"]
 
@@ -164,39 +163,70 @@ if calculate_btn and client:
         if target_row is None:
             target_row = max(len(all_values) + 1, 3)
 
-        # ★ 현재 한국 시간(KST) 구하기
         now_kst = (datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M:%S')
-        
-        # 구글 시트에 들어갈 최종 데이터 (플레이어 점수들 + 맨 마지막에 시간)
         final_values_with_time = [adjusted_amounts[p] for p in players] + [now_kst]
             
         with st.spinner("구글 시트에 당일 순이익 저장 중..."):
             current_row_val = all_values[target_row-1] if target_row <= len(all_values) else []
             has_round_name = len(current_row_val) > 0 and str(current_row_val[0]).strip() != ""
             
-            # ★ 구글 시트 저장 범위를 G열까지 확장
             if not has_round_name:
                 round_str = f"{target_row-2}회차"
                 sheet.update(values=[[round_str] + final_values_with_time], range_name=f"A{target_row}:G{target_row}")
             else:
                 sheet.update(values=[final_values_with_time], range_name=f"B{target_row}:G{target_row}")
             
+            # 데이터 저장 후 세션 스테이트 최신화
             st.session_state.ledger = load_data_from_sheet(client)
             
         st.success("해당 회차의 당일 순이익이 구글 시트에 성공적으로 저장되었습니다!")
-        
-        st.info("### 🔔 이번 회차 송금 가이드")
-        transfers = calculate_transfers(adjusted_amounts)
-        for t in transfers:
-            st.write(t)
+        # (임시로 보여주던 송금 알림창은 아래 고정 영역으로 이동시켰음)
         
     except ValueError:
         st.error("금액은 숫자로만 입력해주세요! (예: 10000, -5000)")
 
 st.divider()
 
-# --- 3. 기록 및 그래프 ---
-st.header("전체 누적 및 그래프")
+# --- 3. 최근 회차 정산 요약 (모두가 볼 수 있는 고정 영역) ---
+st.header("2. 📌 가장 최근 회차 정산 결과")
+
+if not st.session_state.ledger.empty:
+    # '총 누적' 줄을 제외하고 순수 게임 기록만 필터링
+    valid_rounds_df = st.session_state.ledger[st.session_state.ledger['회차'] != '총 누적']
+    
+    if not valid_rounds_df.empty:
+        # 데이터프레임의 가장 마지막 줄(최근 기록) 가져오기
+        last_row = valid_rounds_df.iloc[-1]
+        last_round_name = last_row['회차']
+        last_amounts = {p: int(last_row[p]) for p in players}
+        
+        st.subheader(f"🔔 [{last_round_name}] 보정 결과 및 송금 가이드")
+        
+        col_last1, col_last2 = st.columns([1, 1])
+        
+        with col_last1:
+            # 보정된 최종 금액 표 표시
+            last_df = pd.DataFrame([last_amounts], index=[last_round_name])
+            try:
+                styled_last = last_df.style.format("{:,}").map(color_profit_loss)
+            except AttributeError:
+                styled_last = last_df.style.format("{:,}").applymap(color_profit_loss)
+            st.dataframe(styled_last, use_container_width=True)
+            
+        with col_last2:
+            # 해당 금액을 바탕으로 송금 가이드 표시
+            transfers = calculate_transfers(last_amounts)
+            for t in transfers:
+                st.write(t)
+    else:
+        st.info("아직 완료된 회차가 없습니다.")
+else:
+    st.info("아직 기록된 데이터가 없습니다.")
+
+st.divider()
+
+# --- 4. 기록 및 그래프 ---
+st.header("3. 전체 누적 및 그래프")
 
 if not st.session_state.ledger.empty:
     temp_df = st.session_state.ledger.copy()
