@@ -38,31 +38,32 @@ def load_data_from_sheet(client):
         values = sheet.get_all_values()
         
         if len(values) > 1:
-            # ★ 수정됨: G열(시간 데이터, 인덱스 6)까지 총 7개의 열을 가져옴
-            data = [row[:7] for row in values[1:]]
+            # ★ 수정됨: H열(날짜 데이터, 인덱스 7)까지 총 8개의 열을 가져옴
+            data = [row[:8] for row in values[1:]]
             
             for r in data:
-                while len(r) < 7:
+                while len(r) < 8:
                     r.append("")
                     
             if len(data[0]) > 0:
                 data[0][0] = "총 누적"
                     
-            # 데이터프레임에 '날짜' 컬럼 추가
-            df = pd.DataFrame(data, columns=["회차", "고", "손", "장", "전", "황", "날짜"])
+            # 데이터프레임에 'guest'와 '날짜' 컬럼 추가
+            df = pd.DataFrame(data, columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜"])
             
             df = df[(df['회차'] == '총 누적') | (df['고'].astype(str).str.strip() != '')]
             
-            for col in ["고", "손", "장", "전", "황"]:
+            # guest를 포함하여 숫자 변환
+            for col in ["고", "손", "장", "전", "황", "guest"]:
                 df[col] = df[col].astype(str).str.replace(',', '', regex=False)
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
                 
             return df
         else:
-            return pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "날짜"])
+            return pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜"])
     except Exception as e:
         st.error(f"데이터를 불러오는 중 문제가 발생했습니다: {e}")
-        return pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "날짜"])
+        return pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜"])
 
 def color_profit_loss(val):
     if isinstance(val, (int, float)):
@@ -117,12 +118,13 @@ if 'ledger' not in st.session_state:
     if client:
         st.session_state.ledger = load_data_from_sheet(client)
     else:
-        st.session_state.ledger = pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "날짜"])
+        st.session_state.ledger = pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜"])
 
 # --- 2. 정산 계산기 ---
 st.header("정산 및 추가")
 
-players = ["고", "손", "장", "전", "황"]
+# ★ 플레이어 목록에 'guest' 추가
+players = ["고", "손", "장", "전", "황", "guest"]
 
 with st.form("input_form"):
     st.write("순 이익만 입력 (보정값X)")
@@ -172,11 +174,12 @@ if calculate_btn and client:
             current_row_val = all_values[target_row-1] if target_row <= len(all_values) else []
             has_round_name = len(current_row_val) > 0 and str(current_row_val[0]).strip() != ""
             
+            # ★ 구글 시트 저장 범위를 H열까지 확장 (A~H)
             if not has_round_name:
                 round_str = f"{target_row-2}회차"
-                sheet.update(values=[[round_str] + final_values_with_time], range_name=f"A{target_row}:G{target_row}")
+                sheet.update(values=[[round_str] + final_values_with_time], range_name=f"A{target_row}:H{target_row}")
             else:
-                sheet.update(values=[final_values_with_time], range_name=f"B{target_row}:G{target_row}")
+                sheet.update(values=[final_values_with_time], range_name=f"B{target_row}:H{target_row}")
             
             st.session_state.ledger = load_data_from_sheet(client)
             
@@ -198,7 +201,6 @@ if not st.session_state.ledger.empty:
         last_round_name = last_row['회차']
         last_amounts = {p: int(last_row[p]) for p in players}
         
-        # ★ '날짜' 데이터가 있으면 가져와서 제목에 붙여줌
         last_date = last_row.get('날짜', '')
         date_str = f" ⏱️({last_date})" if str(last_date).strip() != '' else ""
         
@@ -234,7 +236,7 @@ if not st.session_state.ledger.empty:
     temp_df['sort_key'] = temp_df['회차'].str.extract(r'(\d+)', expand=False).fillna(0).astype(int)
     temp_df = temp_df.sort_values('sort_key')
     
-    # ★ 표를 그릴 때는 '날짜' 열을 숨겨서 깔끔하게 유지
+    # 표를 그릴 때는 '날짜' 열을 숨겨서 깔끔하게 유지
     display_df = temp_df.drop(columns=['sort_key', '날짜'], errors='ignore').set_index('회차').fillna(0)
     
     col1, col2 = st.columns([1, 2])
@@ -253,7 +255,7 @@ if not st.session_state.ledger.empty:
         chart_base_df = temp_df[temp_df['sort_key'] > 0].copy()
         
         if not chart_base_df.empty:
-            # ★ 누적 그래프 계산할 때도 '날짜' 열은 제외
+            # 누적 그래프 계산할 때도 '날짜' 열은 제외
             calc_df = chart_base_df.drop(columns=['sort_key', '날짜'], errors='ignore').set_index('회차').fillna(0)
             cumulative_df = calc_df.cumsum()
             
@@ -279,4 +281,3 @@ else:
 st.divider()
 
 st.link_button("📊 원본 구글 시트에서 데이터 확인하기", "https://docs.google.com/spreadsheets/d/1fg8Hkgfb7LQx0AWJ9p9IyvWnuoOzYHqSgx7SdWZp47k/edit?gid=0#gid=0")
-
