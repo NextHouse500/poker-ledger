@@ -126,18 +126,32 @@ buy_in_amount = 20000
 st.header("1. 정산 및 추가")
     
 with st.form("input_form"):
-    st.write(f"각 플레이어의 **현재 잔액**과 **바이인 횟수**를 입력하세요. (1회 바이인 고정 금액: {buy_in_amount:,}원)")
+    st.write(f"오늘 게임에 참여한 사람을 체크하고 **최종 잔액**과 **추가 바이인 횟수**를 입력하세요. \n*(체크된 사람은 기본 참가비 {buy_in_amount:,}원이 자동으로 차감 계산됩니다.)*")
+    
+    # 표 헤더 (타이틀)
+    col_p, col_b, col_a = st.columns([1, 2, 2])
+    col_p.write("**참여**")
+    col_b.write("**최종 잔액**")
+    col_a.write("**추가 바이인 횟수**")
     
     player_inputs = {}
     for player in players:
-        col_bal, col_buyin = st.columns([2, 1])
-        with col_bal:
-            bal = st.number_input(f"[{player}] 현재 잔액", value=0, step=1000, key=f"main_bal_{player}")
-        with col_buyin:
-            default_buyin = 0 if player == "guest" else 1
-            buyin = st.number_input(f"바이인 횟수", min_value=0, value=default_buyin, step=1, key=f"main_buyin_{player}")
+        col_part, col_bal, col_buyin = st.columns([1, 2, 2])
+        
+        with col_part:
+            # guest는 기본적으로 체크 해제(False), 나머지는 체크(True)
+            default_part = False if player == "guest" else True
+            part = st.checkbox(f"{player}", value=default_part, key=f"main_part_{player}")
             
-        player_inputs[player] = {"balance": bal, "buyins": buyin}
+        with col_bal:
+            # 최종 잔액 입력 (label_visibility="collapsed"로 위쪽 라벨 숨김)
+            bal = st.number_input(f"{player} 잔액", value=0, step=1000, key=f"main_bal_{player}", label_visibility="collapsed")
+            
+        with col_buyin:
+            # 추가 바이인 횟수 (기본 0)
+            buyin = st.number_input(f"{player} 추가바이인", min_value=0, value=0, step=1, key=f"main_buyin_{player}", label_visibility="collapsed")
+            
+        player_inputs[player] = {"participating": part, "balance": bal, "buyins": buyin}
         
     calculate_btn = st.form_submit_button("정산 및 구글 시트에 저장")
 
@@ -145,7 +159,13 @@ if calculate_btn and client:
     try:
         raw_amounts = {}
         for p in players:
-            raw_amounts[p] = player_inputs[p]["balance"] - (player_inputs[p]["buyins"] * buy_in_amount)
+            # ★ 참여 체크박스가 켜져 있을 때만 기본금 2만원 차감 로직 실행
+            if player_inputs[p]["participating"]:
+                # 순이익 = (최종 잔액) - (기본 20000원 + 추가 바이인 횟수 * 20000원)
+                raw_amounts[p] = player_inputs[p]["balance"] - (buy_in_amount + (player_inputs[p]["buyins"] * buy_in_amount))
+            else:
+                # 참여하지 않은 사람은 무조건 0원
+                raw_amounts[p] = 0
         
         amounts = list(raw_amounts.values())
         total_loss = abs(sum(a for a in amounts if a < 0))
