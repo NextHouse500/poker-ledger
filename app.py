@@ -119,41 +119,30 @@ if 'ledger' not in st.session_state:
 
 players = ["고", "손", "장", "전", "황", "guest"]
 
-# --- 1.5. 게임 기본 설정 (바이인 금액) ---
-st.markdown("### ⚙️ 게임 기본 설정")
-# 1회 바이인 금액을 전역으로 설정 (기본값 10,000원)
-buy_in_amount = st.number_input("1회 바이인 금액 (원)", min_value=0, value=10000, step=1000)
-st.divider()
+# --- 1.5. 게임 기본 설정 (바이인 금액 고정) ---
+buy_in_amount = 20000
 
-
-# --- 2. 화면 분할: 정산 및 중간정산 ---
-top_col1, top_col2 = st.columns(2)
-
-# --- 왼쪽: 실제 구글 시트 저장용 정산 ---
-with top_col1:
-    st.header("1. 정산 및 추가")
+# --- 2. 정산 및 추가 ---
+st.header("1. 정산 및 추가")
     
-    with st.form("input_form"):
-        st.write("각 플레이어의 **현재 잔액**과 **바이인 횟수**를 입력하세요.")
-        
-        player_inputs = {}
-        for player in players:
-            col_bal, col_buyin = st.columns([2, 1])
-            with col_bal:
-                # 잔액 입력 (음수 방지를 위해 min_value=0 제거, 혹시 모를 상황 대비)
-                bal = st.number_input(f"[{player}] 현재 잔액", value=0, step=1000, key=f"main_bal_{player}")
-            with col_buyin:
-                # guest는 기본 참여 안 함(0), 나머지는 기본 1번으로 세팅
-                default_buyin = 0 if player == "guest" else 1
-                buyin = st.number_input(f"바이인 횟수", min_value=0, value=default_buyin, step=1, key=f"main_buyin_{player}")
-                
-            player_inputs[player] = {"balance": bal, "buyins": buyin}
+with st.form("input_form"):
+    st.write(f"각 플레이어의 **현재 잔액**과 **바이인 횟수**를 입력하세요. (1회 바이인 고정 금액: {buy_in_amount:,}원)")
+    
+    player_inputs = {}
+    for player in players:
+        col_bal, col_buyin = st.columns([2, 1])
+        with col_bal:
+            bal = st.number_input(f"[{player}] 현재 잔액", value=0, step=1000, key=f"main_bal_{player}")
+        with col_buyin:
+            default_buyin = 0 if player == "guest" else 1
+            buyin = st.number_input(f"바이인 횟수", min_value=0, value=default_buyin, step=1, key=f"main_buyin_{player}")
             
-        calculate_btn = st.form_submit_button("정산 및 구글 시트에 저장")
+        player_inputs[player] = {"balance": bal, "buyins": buyin}
+        
+    calculate_btn = st.form_submit_button("정산 및 구글 시트에 저장")
 
 if calculate_btn and client:
     try:
-        # ★ 바이인 횟수와 잔액을 통해 자동으로 '순이익' 계산
         raw_amounts = {}
         for p in players:
             raw_amounts[p] = player_inputs[p]["balance"] - (player_inputs[p]["buyins"] * buy_in_amount)
@@ -203,68 +192,6 @@ if calculate_btn and client:
         
     except ValueError:
         st.error("입력값을 확인해주세요.")
-
-# --- 오른쪽: 단순 중간 확인용 계산기 (표 직접 수정 방식) ---
-with top_col2:
-    st.header("중간정산 계산기")
-    st.write("아래 표를 클릭해서 **바이인 횟수**와 **현재 잔액**을 수정하세요. (저장 안 됨)")
-    
-    # 입력용 빈 데이터프레임 생성 (guest는 0 바이인, 나머지는 1 바이인 기본값)
-    edit_base_df = pd.DataFrame({
-        "플레이어": players,
-        "바이인 횟수": [1, 1, 1, 1, 1, 0],
-        "현재 잔액": [0, 0, 0, 0, 0, 0]
-    })
-    
-    edited_df = st.data_editor(
-        edit_base_df,
-        hide_index=True,
-        column_config={
-            "플레이어": st.column_config.TextColumn("플레이어", disabled=True),
-            "바이인 횟수": st.column_config.NumberColumn("바이인 횟수", default=1, min_value=0, step=1),
-            "현재 잔액": st.column_config.NumberColumn("현재 잔액", default=0, step=1000)
-        },
-        key="mid_editor",
-        use_container_width=True
-    )
-    
-    try:
-        # ★ 표에서 수정한 값을 바탕으로 '중간 순이익' 자동 계산
-        mid_raw_amounts = {}
-        for _, row in edited_df.iterrows():
-            p = row["플레이어"]
-            bal = int(row["현재 잔액"])
-            buyins = int(row["바이인 횟수"])
-            mid_raw_amounts[p] = bal - (buyins * buy_in_amount)
-        
-        m_amounts = list(mid_raw_amounts.values())
-        m_total_loss = abs(sum(a for a in m_amounts if a < 0))
-        m_total_win = sum(a for a in m_amounts if a > 0)
-        
-        mid_adjusted = {}
-        for player in players:
-            amount = mid_raw_amounts[player]
-            if amount > 0 and m_total_win > 0:
-                mid_adjusted[player] = round(amount * (m_total_loss / m_total_win))
-            else:
-                mid_adjusted[player] = amount
-        
-        mid_result_df = pd.DataFrame({
-            "계산된 순이익": list(mid_raw_amounts.values()),
-            "보정된 값": list(mid_adjusted.values())
-        }, index=players)
-        
-        st.write("### 🔍 실시간 보정 결과")
-        st.dataframe(mid_result_df.style.format("{:,}"), use_container_width=True)
-        
-        if any(v != 0 for v in mid_adjusted.values()):
-            st.write("### 💸 현재 기준 송금 가이드")
-            mid_transfers = calculate_transfers(mid_adjusted)
-            for t in mid_transfers:
-                st.write(t)
-        
-    except ValueError:
-        st.error("올바른 숫자를 입력해주세요!")
 
 st.divider()
 
