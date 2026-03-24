@@ -38,7 +38,6 @@ def load_data_from_sheet(client):
         values = sheet.get_all_values()
         
         if len(values) > 1:
-            # ★ 수정됨: H열(날짜 데이터, 인덱스 7)까지 총 8개의 열을 가져옴
             data = [row[:8] for row in values[1:]]
             
             for r in data:
@@ -48,12 +47,10 @@ def load_data_from_sheet(client):
             if len(data[0]) > 0:
                 data[0][0] = "총 누적"
                     
-            # 데이터프레임에 'guest'와 '날짜' 컬럼 추가
             df = pd.DataFrame(data, columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜"])
             
             df = df[(df['회차'] == '총 누적') | (df['고'].astype(str).str.strip() != '')]
             
-            # guest를 포함하여 숫자 변환
             for col in ["고", "손", "장", "전", "황", "guest"]:
                 df[col] = df[col].astype(str).str.replace(',', '', regex=False)
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
@@ -120,26 +117,46 @@ if 'ledger' not in st.session_state:
     else:
         st.session_state.ledger = pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜"])
 
-# --- 2. 정산 계산기 ---
-st.header("정산 및 추가")
-
-# ★ 플레이어 목록에 'guest' 추가
 players = ["고", "손", "장", "전", "황", "guest"]
 
-with st.form("input_form"):
-    st.write("순 이익만 입력 (보정값X)")
-    cols = st.columns(len(players))
+# --- 1.5. 게임 기본 설정 (바이인 금액) ---
+st.markdown("### ⚙️ 게임 기본 설정")
+# 1회 바이인 금액을 전역으로 설정 (기본값 10,000원)
+buy_in_amount = st.number_input("1회 바이인 금액 (원)", min_value=0, value=10000, step=1000)
+st.divider()
+
+
+# --- 2. 화면 분할: 정산 및 중간정산 ---
+top_col1, top_col2 = st.columns(2)
+
+# --- 왼쪽: 실제 구글 시트 저장용 정산 ---
+with top_col1:
+    st.header("1. 정산 및 추가")
     
-    raw_amounts_str = {}
-    for i, player in enumerate(players):
-        with cols[i]:
-            raw_amounts_str[player] = st.text_input(f"{player}", value="0")
+    with st.form("input_form"):
+        st.write("각 플레이어의 **현재 잔액**과 **바이인 횟수**를 입력하세요.")
+        
+        player_inputs = {}
+        for player in players:
+            col_bal, col_buyin = st.columns([2, 1])
+            with col_bal:
+                # 잔액 입력 (음수 방지를 위해 min_value=0 제거, 혹시 모를 상황 대비)
+                bal = st.number_input(f"[{player}] 현재 잔액", value=0, step=1000, key=f"main_bal_{player}")
+            with col_buyin:
+                # guest는 기본 참여 안 함(0), 나머지는 기본 1번으로 세팅
+                default_buyin = 0 if player == "guest" else 1
+                buyin = st.number_input(f"바이인 횟수", min_value=0, value=default_buyin, step=1, key=f"main_buyin_{player}")
+                
+            player_inputs[player] = {"balance": bal, "buyins": buyin}
             
-    calculate_btn = st.form_submit_button("정산 및 구글 시트에 저장")
+        calculate_btn = st.form_submit_button("정산 및 구글 시트에 저장")
 
 if calculate_btn and client:
     try:
-        raw_amounts = {p: int(raw_amounts_str[p].replace(',', '')) for p in players}
+        # ★ 바이인 횟수와 잔액을 통해 자동으로 '순이익' 계산
+        raw_amounts = {}
+        for p in players:
+            raw_amounts[p] = player_inputs[p]["balance"] - (player_inputs[p]["buyins"] * buy_in_amount)
         
         amounts = list(raw_amounts.values())
         total_loss = abs(sum(a for a in amounts if a < 0))
@@ -174,7 +191,6 @@ if calculate_btn and client:
             current_row_val = all_values[target_row-1] if target_row <= len(all_values) else []
             has_round_name = len(current_row_val) > 0 and str(current_row_val[0]).strip() != ""
             
-            # ★ 구글 시트 저장 범위를 H열까지 확장 (A~H)
             if not has_round_name:
                 round_str = f"{target_row-2}회차"
                 sheet.update(values=[[round_str] + final_values_with_time], range_name=f"A{target_row}:H{target_row}")
@@ -183,15 +199,77 @@ if calculate_btn and client:
             
             st.session_state.ledger = load_data_from_sheet(client)
             
-        st.success("해당 회차의 당일 순이익이 구글 시트에 성공적으로 저장되었습니다!")
+        st.success("해당 회차의 정산 결과가 구글 시트에 성공적으로 저장되었습니다!")
         
     except ValueError:
-        st.error("금액은 숫자로만 입력해주세요! (예: 10000, -5000)")
+        st.error("입력값을 확인해주세요.")
+
+# --- 오른쪽: 단순 중간 확인용 계산기 (표 직접 수정 방식) ---
+with top_col2:
+    st.header("중간정산 계산기")
+    st.write("아래 표를 클릭해서 **바이인 횟수**와 **현재 잔액**을 수정하세요. (저장 안 됨)")
+    
+    # 입력용 빈 데이터프레임 생성 (guest는 0 바이인, 나머지는 1 바이인 기본값)
+    edit_base_df = pd.DataFrame({
+        "플레이어": players,
+        "바이인 횟수": [1, 1, 1, 1, 1, 0],
+        "현재 잔액": [0, 0, 0, 0, 0, 0]
+    })
+    
+    edited_df = st.data_editor(
+        edit_base_df,
+        hide_index=True,
+        column_config={
+            "플레이어": st.column_config.TextColumn("플레이어", disabled=True),
+            "바이인 횟수": st.column_config.NumberColumn("바이인 횟수", default=1, min_value=0, step=1),
+            "현재 잔액": st.column_config.NumberColumn("현재 잔액", default=0, step=1000)
+        },
+        key="mid_editor",
+        use_container_width=True
+    )
+    
+    try:
+        # ★ 표에서 수정한 값을 바탕으로 '중간 순이익' 자동 계산
+        mid_raw_amounts = {}
+        for _, row in edited_df.iterrows():
+            p = row["플레이어"]
+            bal = int(row["현재 잔액"])
+            buyins = int(row["바이인 횟수"])
+            mid_raw_amounts[p] = bal - (buyins * buy_in_amount)
+        
+        m_amounts = list(mid_raw_amounts.values())
+        m_total_loss = abs(sum(a for a in m_amounts if a < 0))
+        m_total_win = sum(a for a in m_amounts if a > 0)
+        
+        mid_adjusted = {}
+        for player in players:
+            amount = mid_raw_amounts[player]
+            if amount > 0 and m_total_win > 0:
+                mid_adjusted[player] = round(amount * (m_total_loss / m_total_win))
+            else:
+                mid_adjusted[player] = amount
+        
+        mid_result_df = pd.DataFrame({
+            "계산된 순이익": list(mid_raw_amounts.values()),
+            "보정된 값": list(mid_adjusted.values())
+        }, index=players)
+        
+        st.write("### 🔍 실시간 보정 결과")
+        st.dataframe(mid_result_df.style.format("{:,}"), use_container_width=True)
+        
+        if any(v != 0 for v in mid_adjusted.values()):
+            st.write("### 💸 현재 기준 송금 가이드")
+            mid_transfers = calculate_transfers(mid_adjusted)
+            for t in mid_transfers:
+                st.write(t)
+        
+    except ValueError:
+        st.error("올바른 숫자를 입력해주세요!")
 
 st.divider()
 
 # --- 3. 최근 회차 정산 요약 (모두가 볼 수 있는 고정 영역) ---
-st.header("최근 회차 정산 결과")
+st.header("2. 📌 가장 최근 회차 정산 결과")
 
 if not st.session_state.ledger.empty:
     valid_rounds_df = st.session_state.ledger[st.session_state.ledger['회차'] != '총 누적']
@@ -228,7 +306,7 @@ else:
 st.divider()
 
 # --- 4. 기록 및 그래프 ---
-st.header("전체 누적 및 그래프")
+st.header("3. 전체 누적 및 그래프")
 
 if not st.session_state.ledger.empty:
     temp_df = st.session_state.ledger.copy()
@@ -236,7 +314,6 @@ if not st.session_state.ledger.empty:
     temp_df['sort_key'] = temp_df['회차'].str.extract(r'(\d+)', expand=False).fillna(0).astype(int)
     temp_df = temp_df.sort_values('sort_key')
     
-    # 표를 그릴 때는 '날짜' 열을 숨겨서 깔끔하게 유지
     display_df = temp_df.drop(columns=['sort_key', '날짜'], errors='ignore').set_index('회차').fillna(0)
     
     col1, col2 = st.columns([1, 2])
@@ -255,7 +332,6 @@ if not st.session_state.ledger.empty:
         chart_base_df = temp_df[temp_df['sort_key'] > 0].copy()
         
         if not chart_base_df.empty:
-            # 누적 그래프 계산할 때도 '날짜' 열은 제외
             calc_df = chart_base_df.drop(columns=['sort_key', '날짜'], errors='ignore').set_index('회차').fillna(0)
             cumulative_df = calc_df.cumsum()
             
