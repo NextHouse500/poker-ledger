@@ -128,7 +128,6 @@ st.header("1. 정산 및 추가")
 with st.form("input_form"):
     st.write(f"오늘 게임에 참여한 사람을 체크하고 **최종 잔액**과 **추가 바이인 횟수**를 입력하세요. \n*(체크된 사람은 기본 참가비 {buy_in_amount:,}원이 자동으로 차감 계산됩니다.)*")
     
-    # 표 헤더 (타이틀)
     col_p, col_b, col_a = st.columns([1, 2, 2])
     col_p.write("**참여**")
     col_b.write("**최종 잔액**")
@@ -139,16 +138,13 @@ with st.form("input_form"):
         col_part, col_bal, col_buyin = st.columns([1, 2, 2])
         
         with col_part:
-            # guest는 기본적으로 체크 해제(False), 나머지는 체크(True)
             default_part = False if player == "guest" else True
             part = st.checkbox(f"{player}", value=default_part, key=f"main_part_{player}")
             
         with col_bal:
-            # 최종 잔액 입력 (label_visibility="collapsed"로 위쪽 라벨 숨김)
             bal = st.number_input(f"{player} 잔액", value=0, step=1000, key=f"main_bal_{player}", label_visibility="collapsed")
             
         with col_buyin:
-            # 추가 바이인 횟수 (기본 0)
             buyin = st.number_input(f"{player} 추가바이인", min_value=0, value=0, step=1, key=f"main_buyin_{player}", label_visibility="collapsed")
             
         player_inputs[player] = {"participating": part, "balance": bal, "buyins": buyin}
@@ -159,12 +155,9 @@ if calculate_btn and client:
     try:
         raw_amounts = {}
         for p in players:
-            # ★ 참여 체크박스가 켜져 있을 때만 기본금 2만원 차감 로직 실행
             if player_inputs[p]["participating"]:
-                # 순이익 = (최종 잔액) - (기본 20000원 + 추가 바이인 횟수 * 20000원)
                 raw_amounts[p] = player_inputs[p]["balance"] - (buy_in_amount + (player_inputs[p]["buyins"] * buy_in_amount))
             else:
-                # 참여하지 않은 사람은 무조건 0원
                 raw_amounts[p] = 0
         
         amounts = list(raw_amounts.values())
@@ -215,34 +208,72 @@ if calculate_btn and client:
 
 st.divider()
 
-# --- 3. 최근 회차 정산 요약 (모두가 볼 수 있는 고정 영역) ---
-st.header("2. 📌 가장 최근 회차 정산 결과")
+# --- 3. 회차별 정산 결과 (네비게이션 버튼 추가) ---
+st.header("2. 📌 회차별 정산 결과 확인")
 
 if not st.session_state.ledger.empty:
     valid_rounds_df = st.session_state.ledger[st.session_state.ledger['회차'] != '총 누적']
     
     if not valid_rounds_df.empty:
-        last_row = valid_rounds_df.iloc[-1]
-        last_round_name = last_row['회차']
-        last_amounts = {p: int(last_row[p]) for p in players}
+        num_rounds = len(valid_rounds_df)
         
-        last_date = last_row.get('날짜', '')
-        date_str = f" ⏱️({last_date})" if str(last_date).strip() != '' else ""
+        # 버튼을 누를 때마다 바뀔 현재 위치(인덱스) 세션 초기화
+        if 'view_idx' not in st.session_state:
+            st.session_state.view_idx = num_rounds - 1
+        if 'last_num_rounds' not in st.session_state:
+            st.session_state.last_num_rounds = num_rounds
+            
+        # 새로운 회차가 추가되었다면 가장 최신 회차로 화면 자동 이동
+        if num_rounds > st.session_state.last_num_rounds:
+            st.session_state.view_idx = num_rounds - 1
+        st.session_state.last_num_rounds = num_rounds
         
-        st.subheader(f"[{last_round_name}] 보정 결과 및 송금액 {date_str}")
+        # 만약 인덱스가 꼬였다면 범위 내로 조정
+        if st.session_state.view_idx >= num_rounds:
+            st.session_state.view_idx = num_rounds - 1
+        if st.session_state.view_idx < 0:
+            st.session_state.view_idx = 0
+
+        # 버튼을 눌렀을 때 실행될 콜백 함수들
+        def go_prev():
+            st.session_state.view_idx -= 1
+
+        def go_next():
+            st.session_state.view_idx += 1
+            
+        # 화면에 버튼과 제목 배치
+        nav_col1, nav_col2, nav_col3 = st.columns([1, 3, 1])
+        
+        with nav_col1:
+            st.button("◀ 이전 회차", on_click=go_prev, disabled=(st.session_state.view_idx <= 0), use_container_width=True)
+            
+        # 선택된 회차의 데이터를 불러옴
+        target_row = valid_rounds_df.iloc[st.session_state.view_idx]
+        target_round_name = target_row['회차']
+        target_date = target_row.get('날짜', '')
+        date_str = f" ⏱️({target_date})" if str(target_date).strip() != '' else ""
+        
+        with nav_col2:
+            st.markdown(f"<h4 style='text-align: center;'>[{target_round_name}] 보정 결과 및 송금액<br><span style='font-size: 0.6em; color: gray;'>{date_str}</span></h4>", unsafe_allow_html=True)
+            
+        with nav_col3:
+            st.button("다음 회차 ▶", on_click=go_next, disabled=(st.session_state.view_idx >= num_rounds - 1), use_container_width=True)
+        
+        # 금액 및 송금 내역 표시
+        target_amounts = {p: int(target_row[p]) for p in players}
         
         col_last1, col_last2 = st.columns([1, 1])
         
         with col_last1:
-            last_df = pd.DataFrame([last_amounts], index=[last_round_name])
+            target_df = pd.DataFrame([target_amounts], index=[target_round_name])
             try:
-                styled_last = last_df.style.format("{:,}").map(color_profit_loss)
+                styled_target = target_df.style.format("{:,}").map(color_profit_loss)
             except AttributeError:
-                styled_last = last_df.style.format("{:,}").applymap(color_profit_loss)
-            st.dataframe(styled_last, use_container_width=True)
+                styled_target = target_df.style.format("{:,}").applymap(color_profit_loss)
+            st.dataframe(styled_target, use_container_width=True)
             
         with col_last2:
-            transfers = calculate_transfers(last_amounts)
+            transfers = calculate_transfers(target_amounts)
             for t in transfers:
                 st.write(t)
     else:
