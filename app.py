@@ -62,6 +62,7 @@ def load_data_from_sheet(client):
         st.error(f"데이터를 불러오는 중 문제가 발생했습니다: {e}")
         return pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜"])
 
+# 색상 서식 함수
 def color_profit_loss(val):
     if isinstance(val, (int, float)):
         if val > 0:
@@ -69,6 +70,12 @@ def color_profit_loss(val):
         elif val < 0:
             return 'background-color: #ffebee; color: #000000;'
     return ''
+
+# ★ 총 누적 줄을 굵은 글씨로 만드는 서식 함수
+def bold_total_row(row):
+    if row.name == '총 누적':
+        return ['font-weight: bold'] * len(row)
+    return [''] * len(row)
 
 def calculate_transfers(adjusted_amounts):
     debtors = []
@@ -217,37 +224,31 @@ if not st.session_state.ledger.empty:
     if not valid_rounds_df.empty:
         num_rounds = len(valid_rounds_df)
         
-        # 버튼을 누를 때마다 바뀔 현재 위치(인덱스) 세션 초기화
         if 'view_idx' not in st.session_state:
             st.session_state.view_idx = num_rounds - 1
         if 'last_num_rounds' not in st.session_state:
             st.session_state.last_num_rounds = num_rounds
             
-        # 새로운 회차가 추가되었다면 가장 최신 회차로 화면 자동 이동
         if num_rounds > st.session_state.last_num_rounds:
             st.session_state.view_idx = num_rounds - 1
         st.session_state.last_num_rounds = num_rounds
         
-        # 만약 인덱스가 꼬였다면 범위 내로 조정
         if st.session_state.view_idx >= num_rounds:
             st.session_state.view_idx = num_rounds - 1
         if st.session_state.view_idx < 0:
             st.session_state.view_idx = 0
 
-        # 버튼을 눌렀을 때 실행될 콜백 함수들
         def go_prev():
             st.session_state.view_idx -= 1
 
         def go_next():
             st.session_state.view_idx += 1
             
-        # 화면에 버튼과 제목 배치
         nav_col1, nav_col2, nav_col3 = st.columns([1, 3, 1])
         
         with nav_col1:
             st.button("◀ 이전 회차", on_click=go_prev, disabled=(st.session_state.view_idx <= 0), use_container_width=True)
             
-        # 선택된 회차의 데이터를 불러옴
         target_row = valid_rounds_df.iloc[st.session_state.view_idx]
         target_round_name = target_row['회차']
         target_date = target_row.get('날짜', '')
@@ -259,7 +260,6 @@ if not st.session_state.ledger.empty:
         with nav_col3:
             st.button("다음 회차 ▶", on_click=go_next, disabled=(st.session_state.view_idx >= num_rounds - 1), use_container_width=True)
         
-        # 금액 및 송금 내역 표시
         target_amounts = {p: int(target_row[p]) for p in players}
         
         col_last1, col_last2 = st.columns([1, 1])
@@ -297,10 +297,11 @@ if not st.session_state.ledger.empty:
     col1, col2 = st.columns([1, 2])
     with col1:
         st.subheader("회차 별")
+        # ★ .apply(bold_total_row, axis=1) 를 추가하여 총 누적 줄만 볼드 처리
         try:
-            styled_df = display_df.style.format("{:,}").map(color_profit_loss)
+            styled_df = display_df.style.format("{:,}").map(color_profit_loss).apply(bold_total_row, axis=1)
         except AttributeError:
-            styled_df = display_df.style.format("{:,}").applymap(color_profit_loss)
+            styled_df = display_df.style.format("{:,}").applymap(color_profit_loss).apply(bold_total_row, axis=1)
             
         st.dataframe(styled_df, use_container_width=True)
         
