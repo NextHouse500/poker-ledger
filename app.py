@@ -4,7 +4,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import altair as alt
 from datetime import datetime, timedelta
-import json  # ★ 체크박스 상태를 저장하기 위해 추가된 모듈
+import json
 
 # --- 1. 구글 시트 연동 설정 ---
 CREDENTIALS_FILE = "credentials.json"
@@ -39,19 +39,17 @@ def load_data_from_sheet(client):
         values = sheet.get_all_values()
         
         if len(values) > 1:
-            # ★ 수정됨: I열(송금상태 데이터, 인덱스 8)까지 총 9개의 열을 가져옴 + 구글 시트 실제 행 번호 기록
             data = []
             for i, row in enumerate(values[1:]):
                 r = row[:9]
                 while len(r) < 9:
                     r.append("")
-                r.append(i + 2)  # 실제 구글 시트의 행 번호 (i=0일 때 실제 2행)
+                r.append(i + 2) # 실제 구글 시트의 행 번호
                 data.append(r)
                     
             if len(data[0]) > 0:
                 data[0][0] = "총 누적"
                     
-            # 데이터프레임에 '송금상태', 'sheet_row' 컬럼 추가
             df = pd.DataFrame(data, columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜", "송금상태", "sheet_row"])
             
             df = df[(df['회차'] == '총 누적') | (df['고'].astype(str).str.strip() != '')]
@@ -80,29 +78,7 @@ def bold_total_row(row):
         return ['font-weight: bold'] * len(row)
     return [''] * len(row)
 
-# ★ 체크박스 변경 시 구글 시트에 즉시 반영하는 함수
-def on_checkbox_change(sheet_row, df_index, t_key, widget_key, current_status_str):
-    new_val = st.session_state[widget_key]
-    
-    try:
-        current_status = json.loads(current_status_str) if current_status_str else {}
-    except:
-        current_status = {}
-        
-    current_status[t_key] = new_val
-    new_status_str = json.dumps(current_status, ensure_ascii=False)
-    
-    client = get_gsheet_client()
-    if client:
-        try:
-            sheet = client.open(SHEET_NAME).sheet1
-            sheet.update_acell(f"I{sheet_row}", new_status_str)  # I열에 상태 저장
-            st.session_state.ledger.at[df_index, '송금상태'] = new_status_str
-            st.toast("✅ 송금 확인 상태가 저장되었습니다!", icon="💸")
-        except Exception as e:
-            st.error(f"상태 업데이트 실패: {e}")
-
-# ★ 텍스트뿐만 아니라 고유 키(Key)도 반환하도록 수정
+# 데이터 에디터 표에 넣기 위해 마크다운(별표) 제거한 깔끔한 텍스트 반환
 def calculate_transfers(adjusted_amounts):
     debtors = []
     creditors = []
@@ -128,7 +104,7 @@ def calculate_transfers(adjusted_amounts):
             break
             
         t_key = f"{debtor_name}->{creditor_name}"
-        t_text = f"💸 **{debtor_name}** ➡️ **{creditor_name}** : {transfer_amount:,}원"
+        t_text = f"{debtor_name} ➡️ {creditor_name} : {transfer_amount:,}원"
         transactions.append((t_key, t_text))
         
         debtors[i][1] -= transfer_amount
@@ -153,7 +129,6 @@ if 'ledger' not in st.session_state:
         st.session_state.ledger = pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜", "송금상태", "sheet_row"])
 
 players = ["고", "손", "장", "전", "황", "guest"]
-
 buy_in_amount = 20000
 
 # --- 2. 정산 및 추가 ---
@@ -221,14 +196,12 @@ if calculate_btn and client:
             target_row = max(len(all_values) + 1, 3)
 
         now_kst = (datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M:%S')
-        # ★ 새로운 회차 생성 시 I열(송금상태)에 빈 딕셔너리 '{}' 를 추가하여 저장
         final_values_with_time = [adjusted_amounts[p] for p in players] + [now_kst, "{}"]
             
         with st.spinner("구글 시트에 당일 순이익 저장 중..."):
             current_row_val = all_values[target_row-1] if target_row <= len(all_values) else []
             has_round_name = len(current_row_val) > 0 and str(current_row_val[0]).strip() != ""
             
-            # ★ 구글 시트 저장 범위를 I열까지 확장
             if not has_round_name:
                 round_str = f"{target_row-2}회차"
                 sheet.update(values=[[round_str] + final_values_with_time], range_name=f"A{target_row}:I{target_row}")
@@ -244,7 +217,7 @@ if calculate_btn and client:
 
 st.divider()
 
-# --- 3. 회차별 정산 결과 (체크박스 기능 추가) ---
+# --- 3. 회차별 정산 결과 (최적화된 체크박스 에디터) ---
 st.header("2. 📌 회차별 정산 결과 확인")
 
 if not st.session_state.ledger.empty:
@@ -269,7 +242,6 @@ if not st.session_state.ledger.empty:
 
         def go_prev():
             st.session_state.view_idx -= 1
-
         def go_next():
             st.session_state.view_idx += 1
             
@@ -283,7 +255,6 @@ if not st.session_state.ledger.empty:
         target_date = target_row.get('날짜', '')
         date_str = f" ⏱️({target_date})" if str(target_date).strip() != '' else ""
         
-        # 행 인덱스 및 상태 데이터 추출
         df_index = target_row.name
         sheet_row_num = target_row.get('sheet_row', 3)
         status_str = target_row.get('송금상태', '{}')
@@ -316,18 +287,39 @@ if not st.session_state.ledger.empty:
             if not transfers:
                 st.write("정산할 금액이 없습니다.")
             else:
-                # ★ 송금 내역마다 체크박스 생성
+                # ★ 최적화: 체크박스를 하나의 표(데이터 에디터)로 묶어서 처리
+                transfer_data = []
                 for t_key, t_text in transfers:
                     is_checked = current_status.get(t_key, False)
-                    widget_key = f"chk_{target_round_name}_{t_key}"
+                    transfer_data.append({"t_key": t_key, "송금 내역": f"💸 {t_text}", "완료": is_checked})
+                
+                tdf = pd.DataFrame(transfer_data)
+                
+                edited_tdf = st.data_editor(
+                    tdf,
+                    hide_index=True,
+                    column_config={
+                        "t_key": None, # 화면에 보이지 않게 숨김
+                        "송금 내역": st.column_config.TextColumn("송금 내역", disabled=True),
+                        "완료": st.column_config.CheckboxColumn("✅ 확인")
+                    },
+                    use_container_width=True,
+                    key=f"editor_{target_round_name}"
+                )
+                
+                # 저장 버튼 하나로 묶어서 시트 통신 최소화
+                if st.button("💾 체크 상태 저장", key=f"save_{target_round_name}", use_container_width=True):
+                    new_status = {row["t_key"]: row["완료"] for _, row in edited_tdf.iterrows()}
+                    new_status_str = json.dumps(new_status, ensure_ascii=False)
                     
-                    st.checkbox(
-                        t_text, 
-                        value=is_checked, 
-                        key=widget_key,
-                        on_change=on_checkbox_change,
-                        args=(sheet_row_num, df_index, t_key, widget_key, status_str)
-                    )
+                    with st.spinner("구글 시트에 저장 중..."):
+                        try:
+                            sheet = client.open(SHEET_NAME).sheet1
+                            sheet.update_acell(f"I{sheet_row_num}", new_status_str)
+                            st.session_state.ledger.at[df_index, '송금상태'] = new_status_str
+                            st.success("✅ 저장되었습니다!")
+                        except Exception as e:
+                            st.error(f"저장 실패: {e}")
     else:
         st.info("아직 완료된 회차가 없습니다.")
 else:
@@ -344,7 +336,6 @@ if not st.session_state.ledger.empty:
     temp_df['sort_key'] = temp_df['회차'].str.extract(r'(\d+)', expand=False).fillna(0).astype(int)
     temp_df = temp_df.sort_values('sort_key')
     
-    # ★ 표를 그릴 때는 불필요한 열 숨기기
     display_df = temp_df.drop(columns=['sort_key', '날짜', '송금상태', 'sheet_row'], errors='ignore').set_index('회차').fillna(0)
     
     col1, col2 = st.columns([1, 2])
