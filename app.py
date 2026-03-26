@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np  # ★ 그래프 빈 공간(NaN) 처리를 위해 추가
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import altair as alt
@@ -132,15 +133,17 @@ players = ["고", "손", "장", "전", "황", "문"]
 # --- 2. 정산 및 추가 ---
 st.header("1. 정산 및 추가")
 
+# ★ 20000원이 먼저 오도록 리스트 순서 변경 (기본값 설정)
 buy_in_amount = st.radio(
     "👉 **오늘의 기본 참가비 (1회 바이인 금액)를 선택하세요:**",
-    options=[10000, 20000],
+    options=[20000, 10000],
     format_func=lambda x: f"{x:,}원",
     horizontal=True
 )
     
 with st.form("input_form"):
-    st.write(f"오늘 게임에 참여한 사람을 체크하고 **최종 잔액**과 **추가 바이인 횟수**를 입력하세요. \n*(체크된 사람은 기본 참가비 {buy_in_amount:,}원이 자동으로 차감 계산됩니다.)*")
+    # ★ 안내 멘트 간소화
+    st.write("오늘 게임에 참여한 사람을 체크하고 **최종 잔액**과 **추가 바이인 횟수**를 입력하세요.")
     
     col_p, col_b, col_a = st.columns([1, 2, 2])
     col_p.write("**참여**")
@@ -222,7 +225,7 @@ if calculate_btn and client:
 
 st.divider()
 
-# --- 3. 회차별 정산 결과 (최적화된 체크박스 에디터) ---
+# --- 3. 회차별 정산 결과 ---
 st.header("2. 📌 회차별 정산 결과 확인")
 
 if not st.session_state.ledger.empty:
@@ -359,6 +362,19 @@ if not st.session_state.ledger.empty:
         if not chart_base_df.empty:
             calc_df = chart_base_df.drop(columns=['sort_key', '날짜', '송금상태', 'sheet_row'], errors='ignore').set_index('회차').fillna(0)
             cumulative_df = calc_df.cumsum()
+            
+            # ★ 그래프 그리기 전 전처리 (참여 전 0 고정 구간 숨기기)
+            for p in players:
+                if p in cumulative_df.columns:
+                    # 누적 합계 중 0이 아닌 최초의 인덱스를 찾음
+                    if cumulative_df[p].any():
+                        first_valid_idx = cumulative_df[p].to_numpy().nonzero()[0][0]
+                        # 0이 아닌 첫 번째 기록 이전의 모든 구간을 NaN(빈 값)으로 처리
+                        if first_valid_idx > 0:
+                            cumulative_df.iloc[:first_valid_idx, cumulative_df.columns.get_loc(p)] = np.nan
+                    else:
+                        # 모든 값이 0이면 전체를 나타내지 않음
+                        cumulative_df[p] = np.nan
             
             chart_df = cumulative_df.copy()
             chart_df['회차_번호'] = chart_base_df['sort_key'].values
