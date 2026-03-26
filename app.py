@@ -135,7 +135,7 @@ st.header("1. 정산 및 추가")
 
 # ★ 20000원이 먼저 오도록 리스트 순서 변경 (기본값 설정)
 buy_in_amount = st.radio(
-    "👉 **오늘의 기본 참가비 (1회 바이인 금액)를 선택하세요:**",
+    "👉 **1회 바이인 금액을 선택하세요:**",
     options=[20000, 10000],
     format_func=lambda x: f"{x:,}원",
     horizontal=True
