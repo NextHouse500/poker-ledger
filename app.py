@@ -50,12 +50,10 @@ def load_data_from_sheet(client):
             if len(data[0]) > 0:
                 data[0][0] = "총 누적"
                     
-            # ★ guest 대신 '문'으로 컬럼명 변경
             df = pd.DataFrame(data, columns=["회차", "고", "손", "장", "전", "황", "문", "날짜", "송금상태", "sheet_row"])
             
             df = df[(df['회차'] == '총 누적') | (df['고'].astype(str).str.strip() != '')]
             
-            # ★ 숫자 변환 시에도 '문' 적용
             for col in ["고", "손", "장", "전", "황", "문"]:
                 df[col] = df[col].astype(str).str.replace(',', '', regex=False)
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
@@ -80,7 +78,6 @@ def bold_total_row(row):
         return ['font-weight: bold'] * len(row)
     return [''] * len(row)
 
-# 데이터 에디터 표에 넣기 위해 마크다운(별표) 제거한 깔끔한 텍스트 반환
 def calculate_transfers(adjusted_amounts):
     debtors = []
     creditors = []
@@ -130,12 +127,17 @@ if 'ledger' not in st.session_state:
     else:
         st.session_state.ledger = pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "문", "날짜", "송금상태", "sheet_row"])
 
-# ★ 플레이어 목록에 '문' 적용
 players = ["고", "손", "장", "전", "황", "문"]
-buy_in_amount = 20000
 
 # --- 2. 정산 및 추가 ---
 st.header("1. 정산 및 추가")
+
+buy_in_amount = st.radio(
+    "👉 **오늘의 기본 참가비 (1회 바이인 금액)를 선택하세요:**",
+    options=[10000, 20000],
+    format_func=lambda x: f"{x:,}원",
+    horizontal=True
+)
     
 with st.form("input_form"):
     st.write(f"오늘 게임에 참여한 사람을 체크하고 **최종 잔액**과 **추가 바이인 횟수**를 입력하세요. \n*(체크된 사람은 기본 참가비 {buy_in_amount:,}원이 자동으로 차감 계산됩니다.)*")
@@ -150,7 +152,6 @@ with st.form("input_form"):
         col_part, col_bal, col_buyin = st.columns([1, 2, 2])
         
         with col_part:
-            # ★ '문'은 기본적으로 체크 해제(False), 나머지는 체크(True)
             default_part = False if player == "문" else True
             part = st.checkbox(f"{player}", value=default_part, key=f"main_part_{player}")
             
