@@ -4,6 +4,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import altair as alt
 from datetime import datetime, timedelta
+import json  # ★ 체크박스 상태를 저장하기 위해 추가된 모듈
 
 # --- 1. 구글 시트 연동 설정 ---
 CREDENTIALS_FILE = "credentials.json"
@@ -38,16 +39,20 @@ def load_data_from_sheet(client):
         values = sheet.get_all_values()
         
         if len(values) > 1:
-            data = [row[:8] for row in values[1:]]
-            
-            for r in data:
-                while len(r) < 8:
+            # ★ 수정됨: I열(송금상태 데이터, 인덱스 8)까지 총 9개의 열을 가져옴 + 구글 시트 실제 행 번호 기록
+            data = []
+            for i, row in enumerate(values[1:]):
+                r = row[:9]
+                while len(r) < 9:
                     r.append("")
+                r.append(i + 2)  # 실제 구글 시트의 행 번호 (i=0일 때 실제 2행)
+                data.append(r)
                     
             if len(data[0]) > 0:
                 data[0][0] = "총 누적"
                     
-            df = pd.DataFrame(data, columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜"])
+            # 데이터프레임에 '송금상태', 'sheet_row' 컬럼 추가
+            df = pd.DataFrame(data, columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜", "송금상태", "sheet_row"])
             
             df = df[(df['회차'] == '총 누적') | (df['고'].astype(str).str.strip() != '')]
             
@@ -57,12 +62,11 @@ def load_data_from_sheet(client):
                 
             return df
         else:
-            return pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜"])
+            return pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜", "송금상태", "sheet_row"])
     except Exception as e:
         st.error(f"데이터를 불러오는 중 문제가 발생했습니다: {e}")
-        return pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜"])
+        return pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜", "송금상태", "sheet_row"])
 
-# 색상 서식 함수
 def color_profit_loss(val):
     if isinstance(val, (int, float)):
         if val > 0:
@@ -71,12 +75,34 @@ def color_profit_loss(val):
             return 'background-color: #ffebee; color: #000000;'
     return ''
 
-# ★ 총 누적 줄을 굵은 글씨로 만드는 서식 함수
 def bold_total_row(row):
     if row.name == '총 누적':
         return ['font-weight: bold'] * len(row)
     return [''] * len(row)
 
+# ★ 체크박스 변경 시 구글 시트에 즉시 반영하는 함수
+def on_checkbox_change(sheet_row, df_index, t_key, widget_key, current_status_str):
+    new_val = st.session_state[widget_key]
+    
+    try:
+        current_status = json.loads(current_status_str) if current_status_str else {}
+    except:
+        current_status = {}
+        
+    current_status[t_key] = new_val
+    new_status_str = json.dumps(current_status, ensure_ascii=False)
+    
+    client = get_gsheet_client()
+    if client:
+        try:
+            sheet = client.open(SHEET_NAME).sheet1
+            sheet.update_acell(f"I{sheet_row}", new_status_str)  # I열에 상태 저장
+            st.session_state.ledger.at[df_index, '송금상태'] = new_status_str
+            st.toast("✅ 송금 확인 상태가 저장되었습니다!", icon="💸")
+        except Exception as e:
+            st.error(f"상태 업데이트 실패: {e}")
+
+# ★ 텍스트뿐만 아니라 고유 키(Key)도 반환하도록 수정
 def calculate_transfers(adjusted_amounts):
     debtors = []
     creditors = []
@@ -101,7 +127,9 @@ def calculate_transfers(adjusted_amounts):
         if transfer_amount == 0:
             break
             
-        transactions.append(f"💸 **{debtor_name}** ➡️ **{creditor_name}** : {transfer_amount:,}원")
+        t_key = f"{debtor_name}->{creditor_name}"
+        t_text = f"💸 **{debtor_name}** ➡️ **{creditor_name}** : {transfer_amount:,}원"
+        transactions.append((t_key, t_text))
         
         debtors[i][1] -= transfer_amount
         creditors[j][1] -= transfer_amount
@@ -111,7 +139,7 @@ def calculate_transfers(adjusted_amounts):
         if creditors[j][1] == 0:
             j += 1
             
-    return transactions if transactions else ["정산할 금액이 없습니다."]
+    return transactions
 
 st.set_page_config(page_title="포커 기록장", layout="wide")
 st.title("🃏 가계부")
@@ -122,11 +150,10 @@ if 'ledger' not in st.session_state:
     if client:
         st.session_state.ledger = load_data_from_sheet(client)
     else:
-        st.session_state.ledger = pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜"])
+        st.session_state.ledger = pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜", "송금상태", "sheet_row"])
 
 players = ["고", "손", "장", "전", "황", "guest"]
 
-# --- 1.5. 게임 기본 설정 (바이인 금액 고정) ---
 buy_in_amount = 20000
 
 # --- 2. 정산 및 추가 ---
@@ -194,17 +221,19 @@ if calculate_btn and client:
             target_row = max(len(all_values) + 1, 3)
 
         now_kst = (datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M:%S')
-        final_values_with_time = [adjusted_amounts[p] for p in players] + [now_kst]
+        # ★ 새로운 회차 생성 시 I열(송금상태)에 빈 딕셔너리 '{}' 를 추가하여 저장
+        final_values_with_time = [adjusted_amounts[p] for p in players] + [now_kst, "{}"]
             
         with st.spinner("구글 시트에 당일 순이익 저장 중..."):
             current_row_val = all_values[target_row-1] if target_row <= len(all_values) else []
             has_round_name = len(current_row_val) > 0 and str(current_row_val[0]).strip() != ""
             
+            # ★ 구글 시트 저장 범위를 I열까지 확장
             if not has_round_name:
                 round_str = f"{target_row-2}회차"
-                sheet.update(values=[[round_str] + final_values_with_time], range_name=f"A{target_row}:H{target_row}")
+                sheet.update(values=[[round_str] + final_values_with_time], range_name=f"A{target_row}:I{target_row}")
             else:
-                sheet.update(values=[final_values_with_time], range_name=f"B{target_row}:H{target_row}")
+                sheet.update(values=[final_values_with_time], range_name=f"B{target_row}:I{target_row}")
             
             st.session_state.ledger = load_data_from_sheet(client)
             
@@ -215,7 +244,7 @@ if calculate_btn and client:
 
 st.divider()
 
-# --- 3. 회차별 정산 결과 (네비게이션 버튼 추가) ---
+# --- 3. 회차별 정산 결과 (체크박스 기능 추가) ---
 st.header("2. 📌 회차별 정산 결과 확인")
 
 if not st.session_state.ledger.empty:
@@ -254,6 +283,16 @@ if not st.session_state.ledger.empty:
         target_date = target_row.get('날짜', '')
         date_str = f" ⏱️({target_date})" if str(target_date).strip() != '' else ""
         
+        # 행 인덱스 및 상태 데이터 추출
+        df_index = target_row.name
+        sheet_row_num = target_row.get('sheet_row', 3)
+        status_str = target_row.get('송금상태', '{}')
+        
+        try:
+            current_status = json.loads(status_str) if status_str else {}
+        except:
+            current_status = {}
+        
         with nav_col2:
             st.markdown(f"<h4 style='text-align: center;'>[{target_round_name}] 보정 결과 및 송금액<br><span style='font-size: 0.6em; color: gray;'>{date_str}</span></h4>", unsafe_allow_html=True)
             
@@ -274,8 +313,21 @@ if not st.session_state.ledger.empty:
             
         with col_last2:
             transfers = calculate_transfers(target_amounts)
-            for t in transfers:
-                st.write(t)
+            if not transfers:
+                st.write("정산할 금액이 없습니다.")
+            else:
+                # ★ 송금 내역마다 체크박스 생성
+                for t_key, t_text in transfers:
+                    is_checked = current_status.get(t_key, False)
+                    widget_key = f"chk_{target_round_name}_{t_key}"
+                    
+                    st.checkbox(
+                        t_text, 
+                        value=is_checked, 
+                        key=widget_key,
+                        on_change=on_checkbox_change,
+                        args=(sheet_row_num, df_index, t_key, widget_key, status_str)
+                    )
     else:
         st.info("아직 완료된 회차가 없습니다.")
 else:
@@ -292,12 +344,12 @@ if not st.session_state.ledger.empty:
     temp_df['sort_key'] = temp_df['회차'].str.extract(r'(\d+)', expand=False).fillna(0).astype(int)
     temp_df = temp_df.sort_values('sort_key')
     
-    display_df = temp_df.drop(columns=['sort_key', '날짜'], errors='ignore').set_index('회차').fillna(0)
+    # ★ 표를 그릴 때는 불필요한 열 숨기기
+    display_df = temp_df.drop(columns=['sort_key', '날짜', '송금상태', 'sheet_row'], errors='ignore').set_index('회차').fillna(0)
     
     col1, col2 = st.columns([1, 2])
     with col1:
         st.subheader("회차 별")
-        # ★ .apply(bold_total_row, axis=1) 를 추가하여 총 누적 줄만 볼드 처리
         try:
             styled_df = display_df.style.format("{:,}").map(color_profit_loss).apply(bold_total_row, axis=1)
         except AttributeError:
@@ -311,7 +363,7 @@ if not st.session_state.ledger.empty:
         chart_base_df = temp_df[temp_df['sort_key'] > 0].copy()
         
         if not chart_base_df.empty:
-            calc_df = chart_base_df.drop(columns=['sort_key', '날짜'], errors='ignore').set_index('회차').fillna(0)
+            calc_df = chart_base_df.drop(columns=['sort_key', '날짜', '송금상태', 'sheet_row'], errors='ignore').set_index('회차').fillna(0)
             cumulative_df = calc_df.cumsum()
             
             chart_df = cumulative_df.copy()
