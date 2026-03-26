@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import numpy as np  # ★ 그래프 빈 공간(NaN) 처리를 위해 추가
+import numpy as np
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import altair as alt
@@ -133,7 +133,6 @@ players = ["고", "손", "장", "전", "황", "문"]
 # --- 2. 정산 및 추가 ---
 st.header("1. 정산 및 추가")
 
-# ★ 20000원이 먼저 오도록 리스트 순서 변경 (기본값 설정)
 buy_in_amount = st.radio(
     "👉 **1회 바이인 금액을 선택하세요:**",
     options=[20000, 10000],
@@ -142,7 +141,6 @@ buy_in_amount = st.radio(
 )
     
 with st.form("input_form"):
-    # ★ 안내 멘트 간소화
     st.write("오늘 게임에 참여한 사람을 체크하고 **최종 잔액**과 **추가 바이인 횟수**를 입력하세요.")
     
     col_p, col_b, col_a = st.columns([1, 2, 2])
@@ -212,10 +210,11 @@ if calculate_btn and client:
             
             if not has_round_name:
                 round_str = f"{target_row-2}회차"
-                sheet.update(values=[[round_str] + final_values_with_time], range_name=f"A{target_row}:I{target_row}")
+                sheet.update(range_name=f"A{target_row}:I{target_row}", values=[[round_str] + final_values_with_time])
             else:
-                sheet.update(values=[final_values_with_time], range_name=f"B{target_row}:I{target_row}")
+                sheet.update(range_name=f"B{target_row}:I{target_row}", values=[final_values_with_time])
             
+            # 업데이트 직후 세션 스테이트 새로고침
             st.session_state.ledger = load_data_from_sheet(client)
             
         st.success("해당 회차의 정산 결과가 구글 시트에 성공적으로 저장되었습니다!")
@@ -250,6 +249,7 @@ if not st.session_state.ledger.empty:
 
         def go_prev():
             st.session_state.view_idx -= 1
+            
         def go_next():
             st.session_state.view_idx += 1
             
@@ -363,17 +363,13 @@ if not st.session_state.ledger.empty:
             calc_df = chart_base_df.drop(columns=['sort_key', '날짜', '송금상태', 'sheet_row'], errors='ignore').set_index('회차').fillna(0)
             cumulative_df = calc_df.cumsum()
             
-            # ★ 그래프 그리기 전 전처리 (참여 전 0 고정 구간 숨기기)
             for p in players:
                 if p in cumulative_df.columns:
-                    # 누적 합계 중 0이 아닌 최초의 인덱스를 찾음
                     if cumulative_df[p].any():
                         first_valid_idx = cumulative_df[p].to_numpy().nonzero()[0][0]
-                        # 0이 아닌 첫 번째 기록 이전의 모든 구간을 NaN(빈 값)으로 처리
                         if first_valid_idx > 0:
                             cumulative_df.iloc[:first_valid_idx, cumulative_df.columns.get_loc(p)] = np.nan
                     else:
-                        # 모든 값이 0이면 전체를 나타내지 않음
                         cumulative_df[p] = np.nan
             
             chart_df = cumulative_df.copy()
