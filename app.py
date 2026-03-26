@@ -50,20 +50,22 @@ def load_data_from_sheet(client):
             if len(data[0]) > 0:
                 data[0][0] = "총 누적"
                     
-            df = pd.DataFrame(data, columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜", "송금상태", "sheet_row"])
+            # ★ guest 대신 '문'으로 컬럼명 변경
+            df = pd.DataFrame(data, columns=["회차", "고", "손", "장", "전", "황", "문", "날짜", "송금상태", "sheet_row"])
             
             df = df[(df['회차'] == '총 누적') | (df['고'].astype(str).str.strip() != '')]
             
-            for col in ["고", "손", "장", "전", "황", "guest"]:
+            # ★ 숫자 변환 시에도 '문' 적용
+            for col in ["고", "손", "장", "전", "황", "문"]:
                 df[col] = df[col].astype(str).str.replace(',', '', regex=False)
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
                 
             return df
         else:
-            return pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜", "송금상태", "sheet_row"])
+            return pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "문", "날짜", "송금상태", "sheet_row"])
     except Exception as e:
         st.error(f"데이터를 불러오는 중 문제가 발생했습니다: {e}")
-        return pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜", "송금상태", "sheet_row"])
+        return pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "문", "날짜", "송금상태", "sheet_row"])
 
 def color_profit_loss(val):
     if isinstance(val, (int, float)):
@@ -126,9 +128,10 @@ if 'ledger' not in st.session_state:
     if client:
         st.session_state.ledger = load_data_from_sheet(client)
     else:
-        st.session_state.ledger = pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "guest", "날짜", "송금상태", "sheet_row"])
+        st.session_state.ledger = pd.DataFrame(columns=["회차", "고", "손", "장", "전", "황", "문", "날짜", "송금상태", "sheet_row"])
 
-players = ["고", "손", "장", "전", "황", "guest"]
+# ★ 플레이어 목록에 '문' 적용
+players = ["고", "손", "장", "전", "황", "문"]
 buy_in_amount = 20000
 
 # --- 2. 정산 및 추가 ---
@@ -147,7 +150,8 @@ with st.form("input_form"):
         col_part, col_bal, col_buyin = st.columns([1, 2, 2])
         
         with col_part:
-            default_part = False if player == "guest" else True
+            # ★ '문'은 기본적으로 체크 해제(False), 나머지는 체크(True)
+            default_part = False if player == "문" else True
             part = st.checkbox(f"{player}", value=default_part, key=f"main_part_{player}")
             
         with col_bal:
@@ -287,7 +291,6 @@ if not st.session_state.ledger.empty:
             if not transfers:
                 st.write("정산할 금액이 없습니다.")
             else:
-                # ★ 최적화: 체크박스를 하나의 표(데이터 에디터)로 묶어서 처리
                 transfer_data = []
                 for t_key, t_text in transfers:
                     is_checked = current_status.get(t_key, False)
@@ -299,7 +302,7 @@ if not st.session_state.ledger.empty:
                     tdf,
                     hide_index=True,
                     column_config={
-                        "t_key": None, # 화면에 보이지 않게 숨김
+                        "t_key": None, 
                         "송금 내역": st.column_config.TextColumn("송금 내역", disabled=True),
                         "완료": st.column_config.CheckboxColumn("✅ 확인")
                     },
@@ -307,8 +310,7 @@ if not st.session_state.ledger.empty:
                     key=f"editor_{target_round_name}"
                 )
                 
-                # 저장 버튼 하나로 묶어서 시트 통신 최소화
-                if st.button("💾 체크 상태 저장", key=f"save_{target_round_name}", use_container_width=True):
+                if st.button("💾 체크 상태 구글 시트에 저장", key=f"save_{target_round_name}", use_container_width=True):
                     new_status = {row["t_key"]: row["완료"] for _, row in edited_tdf.iterrows()}
                     new_status_str = json.dumps(new_status, ensure_ascii=False)
                     
