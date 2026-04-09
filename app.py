@@ -355,13 +355,6 @@ if not st.session_state.ledger.empty:
     with col2:
         st.subheader("📈 플레이어별 누적 금액 변화")
         
-        # ★ 차트의 자바스크립트 버그를 피하기 위해, 스트림릿 기본 버튼(Radio)을 추가합니다.
-        selected_player = st.radio(
-            "🔍 강조해서 볼 플레이어를 선택하세요:",
-            options=["전체 보기"] + players,
-            horizontal=True
-        )
-        
         chart_base_df = temp_df[temp_df['sort_key'] > 0].copy()
         
         if not chart_base_df.empty:
@@ -382,33 +375,44 @@ if not st.session_state.ledger.empty:
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
             
-            base = alt.Chart(melted_df).encode(
-                x=alt.X('회차_번호:Q', 
-                        scale=alt.Scale(domainMin=1), 
-                        axis=alt.Axis(tickMinStep=1, format='d', title='회차')), 
-                y=alt.Y('누적금액:Q', title='누적 수익 (원)'),
-                color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어"))
-            )
+            # ★ 필터링을 위해 그래프를 먼저 그릴 준비를 합니다. (렌더링은 체크박스 밑에서)
             
-            # ★ 사용자가 선택한 버튼 값에 따라 파이썬이 차트를 새로 그립니다. (에러 0%)
-            if selected_player == "전체 보기":
-                lines = base.mark_line(size=2.5, opacity=1.0)
-                visible_points = base.mark_circle(size=60, opacity=1.0).encode(
-                    tooltip=['회차_번호', '플레이어', '누적금액']
+            # --- 다중 선택용 체크박스 배치 (그래프 위) ---
+            st.markdown("##### 🔍 그래프에 표시할 사람 선택")
+            
+            # 가로로 나란히 배치하기 위해 columns 사용
+            cols = st.columns(len(players))
+            
+            selected_players = []
+            for i, p in enumerate(players):
+                with cols[i]:
+                    # 기본값(value=True)으로 모두 켜진 상태로 시작합니다.
+                    if st.checkbox(p, value=True, key=f"filter_{p}"):
+                        selected_players.append(p)
+            
+            # --- 선택된 사람만 데이터 필터링 ---
+            if selected_players:
+                filtered_df = melted_df[melted_df['플레이어'].isin(selected_players)]
+                
+                # --- 그래프 렌더링 ---
+                base = alt.Chart(filtered_df).encode(
+                    x=alt.X('회차_번호:Q', 
+                            scale=alt.Scale(domainMin=1), 
+                            axis=alt.Axis(tickMinStep=1, format='d', title='회차')), 
+                    y=alt.Y('누적금액:Q', title='누적 수익 (원)'),
+                    color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어"))
                 )
-            else:
-                lines = base.mark_line().encode(
-                    size=alt.condition(alt.datum.플레이어 == selected_player, alt.value(4.5), alt.value(1.0)),
-                    opacity=alt.condition(alt.datum.플레이어 == selected_player, alt.value(1.0), alt.value(0.15))
-                )
+                
+                lines = base.mark_line(size=2.5)
                 visible_points = base.mark_circle(size=60).encode(
-                    opacity=alt.condition(alt.datum.플레이어 == selected_player, alt.value(1.0), alt.value(0.15)),
                     tooltip=['회차_번호', '플레이어', '누적금액']
                 )
+                
+                chart = (lines + visible_points)
+                st.altair_chart(chart, use_container_width=True)
+            else:
+                st.warning("표시할 플레이어를 1명 이상 선택해 주세요.")
             
-            chart = (lines + visible_points)
-            
-            st.altair_chart(chart, use_container_width=True)
         else:
             st.info("아직 누적 그래프를 그릴 회차 데이터가 없습니다.")
 else:
