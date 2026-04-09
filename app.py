@@ -45,7 +45,7 @@ def load_data_from_sheet(client):
                 r = row[:9]
                 while len(r) < 9:
                     r.append("")
-                r.append(i + 2) # 실제 구글 시트의 행 번호
+                r.append(i + 2)
                 data.append(r)
                     
             if len(data[0]) > 0:
@@ -134,7 +134,7 @@ players = ["고", "손", "장", "전", "황", "문"]
 st.header("1. 정산 및 추가")
 
 buy_in_amount = st.radio(
-    "👉 **1회 바이인 금액을 선택하세요:**",
+    "👉 **오늘의 기본 참가비 (1회 바이인 금액)를 선택하세요:**",
     options=[20000, 10000],
     format_func=lambda x: f"{x:,}원",
     horizontal=True
@@ -210,11 +210,10 @@ if calculate_btn and client:
             
             if not has_round_name:
                 round_str = f"{target_row-2}회차"
-                sheet.update(range_name=f"A{target_row}:I{target_row}", values=[[round_str] + final_values_with_time])
+                sheet.update(values=[[round_str] + final_values_with_time], range_name=f"A{target_row}:I{target_row}")
             else:
-                sheet.update(range_name=f"B{target_row}:I{target_row}", values=[final_values_with_time])
+                sheet.update(values=[final_values_with_time], range_name=f"B{target_row}:I{target_row}")
             
-            # 업데이트 직후 세션 스테이트 새로고침
             st.session_state.ledger = load_data_from_sheet(client)
             
         st.success("해당 회차의 정산 결과가 구글 시트에 성공적으로 저장되었습니다!")
@@ -249,7 +248,6 @@ if not st.session_state.ledger.empty:
 
         def go_prev():
             st.session_state.view_idx -= 1
-            
         def go_next():
             st.session_state.view_idx += 1
             
@@ -377,15 +375,50 @@ if not st.session_state.ledger.empty:
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
             
-            chart = alt.Chart(melted_df).mark_line(point=True).encode(
-                x=alt.X('회차_번호:Q', 
-                        scale=alt.Scale(domainMin=1), 
-                        axis=alt.Axis(tickMinStep=1, format='d', title='회차')), 
-                y=alt.Y('누적금액:Q', title='누적 수익 (원)'),
-                color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어")),
-                tooltip=['회차_번호', '플레이어', '누적금액']
-            )
-            st.altair_chart(chart, use_container_width=True)
+            # --- 🌟 레이아웃 분리: 상단(그래프) & 하단(체크박스) ---
+            chart_container = st.container()
+            control_container = st.container()
+            
+            # 1. 하단 체크박스 그리기 (선택된 데이터 수집)
+            with control_container:
+                st.markdown("##### 🔍 그래프에 표시할 사람 선택")
+                cols = st.columns(len(players))
+                selected_players = []
+                for i, p in enumerate(players):
+                    with cols[i]:
+                        # value=True를 줘서 처음에 모두 체크된 상태로 만듭니다.
+                        if st.checkbox(p, value=True, key=f"filter_{p}"):
+                            selected_players.append(p)
+            
+            # 2. 상단 그래프 그리기
+            with chart_container:
+                if selected_players:
+                    filtered_df = melted_df[melted_df['플레이어'].isin(selected_players)]
+                    
+                    # ★ 업로드하신 이미지의 색상을 완벽히 매칭하여 고정했습니다!
+                    fixed_colors = alt.Scale(
+                        domain=["고", "손", "장", "전", "황", "문"],
+                        range=['#5897D8', '#FF6E6E', '#FFC5C5', '#70CDB6', '#AAEFAD', '#A5D6FF']
+                    )
+                    
+                    base = alt.Chart(filtered_df).encode(
+                        x=alt.X('회차_번호:Q', 
+                                scale=alt.Scale(domainMin=1), 
+                                axis=alt.Axis(tickMinStep=1, format='d', title='회차')), 
+                        y=alt.Y('누적금액:Q', title='누적 수익 (원)'),
+                        color=alt.Color('플레이어:N', scale=fixed_colors, legend=alt.Legend(title="플레이어"))
+                    )
+                    
+                    lines = base.mark_line(size=2.5)
+                    visible_points = base.mark_circle(size=60).encode(
+                        tooltip=['회차_번호', '플레이어', '누적금액']
+                    )
+                    
+                    chart = (lines + visible_points)
+                    st.altair_chart(chart, use_container_width=True)
+                else:
+                    st.warning("표시할 플레이어를 1명 이상 체크해 주세요.")
+            
         else:
             st.info("아직 누적 그래프를 그릴 회차 데이터가 없습니다.")
 else:
