@@ -52,6 +52,7 @@ def load_data_from_sheet(client):
                 data[0][0] = "총 누적"
                     
             df = pd.DataFrame(data, columns=["회차", "고", "손", "장", "전", "황", "문", "날짜", "송금상태", "sheet_row"])
+            
             df = df[(df['회차'] == '총 누적') | (df['고'].astype(str).str.strip() != '')]
             
             for col in ["고", "손", "장", "전", "황", "문"]:
@@ -192,6 +193,7 @@ if calculate_btn and client:
         target_row = None
         for i, row in enumerate(all_values):
             if i < 2: continue
+            
             if len(row) < 2 or str(row[1]).strip() == "":
                 target_row = i + 1
                 break
@@ -352,7 +354,6 @@ if not st.session_state.ledger.empty:
         
     with col2:
         st.subheader("📈 플레이어별 누적 금액 변화")
-        st.caption("💡 오른쪽 범례에서 플레이어 이름을 클릭하면 해당 선이 강조됩니다. 다시 클릭하면 해제됩니다.")
         
         chart_base_df = temp_df[temp_df['sort_key'] > 0].copy()
         
@@ -373,29 +374,41 @@ if not st.session_state.ledger.empty:
             chart_df['회차_번호'] = chart_base_df['sort_key'].values
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
-
-            # ★ 범례 클릭으로 선택 → 선택 없으면 전부 진하게, 선택하면 해당 선만 강조
+            
+            # ★ 핵심 수정: clear='mouseout' 추가 및 empty=True 로 기본값을 '모두 선택됨(진하게)' 상태로 설정
             highlight = alt.selection_point(
-                fields=['플레이어'],
-                bind='legend',  # 범례 클릭으로 선택
-                empty=True      # 선택 없을 때 전부 진하게
+                on='pointerover', 
+                fields=['플레이어'], 
+                nearest=True,
+                clear='mouseout',
+                empty=True
             )
-
+            
             base = alt.Chart(melted_df).encode(
-                x=alt.X('회차_번호:Q',
-                        scale=alt.Scale(domainMin=1),
-                        axis=alt.Axis(tickMinStep=1, format='d', title='회차')),
+                x=alt.X('회차_번호:Q', 
+                        scale=alt.Scale(domainMin=1), 
+                        axis=alt.Axis(tickMinStep=1, format='d', title='회차')), 
                 y=alt.Y('누적금액:Q', title='누적 수익 (원)'),
-                color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어")),
+                color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어"))
             )
-
-            lines = base.mark_line(point=True).encode(
-                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.15)),
-                strokeWidth=alt.condition(highlight, alt.value(3), alt.value(1.5)),
+            
+            points = base.mark_circle(size=300, opacity=0).add_params(
+                highlight
+            )
+            
+            lines = base.mark_line().encode(
+                size=alt.condition(highlight, alt.value(4), alt.value(1.5)),
+                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2))
+            )
+            
+            visible_points = base.mark_circle(size=60).encode(
+                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2)),
                 tooltip=['회차_번호', '플레이어', '누적금액']
-            ).add_params(highlight)
-
-            st.altair_chart(lines, use_container_width=True)
+            )
+            
+            chart = (points + lines + visible_points)
+            
+            st.altair_chart(chart, use_container_width=True)
         else:
             st.info("아직 누적 그래프를 그릴 회차 데이터가 없습니다.")
 else:
