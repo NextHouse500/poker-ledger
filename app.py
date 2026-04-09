@@ -45,7 +45,7 @@ def load_data_from_sheet(client):
                 r = row[:9]
                 while len(r) < 9:
                     r.append("")
-                r.append(i + 2) # 실제 구글 시트의 행 번호
+                r.append(i + 2)
                 data.append(r)
                     
             if len(data[0]) > 0:
@@ -134,7 +134,7 @@ players = ["고", "손", "장", "전", "황", "문"]
 st.header("1. 정산 및 추가")
 
 buy_in_amount = st.radio(
-    "👉 **1회 바이인 금액을 선택하세요:**",
+    "👉 **오늘의 기본 참가비 (1회 바이인 금액)를 선택하세요:**",
     options=[20000, 10000],
     format_func=lambda x: f"{x:,}원",
     horizontal=True
@@ -210,11 +210,10 @@ if calculate_btn and client:
             
             if not has_round_name:
                 round_str = f"{target_row-2}회차"
-                sheet.update(range_name=f"A{target_row}:I{target_row}", values=[[round_str] + final_values_with_time])
+                sheet.update(values=[[round_str] + final_values_with_time], range_name=f"A{target_row}:I{target_row}")
             else:
-                sheet.update(range_name=f"B{target_row}:I{target_row}", values=[final_values_with_time])
+                sheet.update(values=[final_values_with_time], range_name=f"B{target_row}:I{target_row}")
             
-            # 업데이트 직후 세션 스테이트 새로고침
             st.session_state.ledger = load_data_from_sheet(client)
             
         st.success("해당 회차의 정산 결과가 구글 시트에 성공적으로 저장되었습니다!")
@@ -249,7 +248,6 @@ if not st.session_state.ledger.empty:
 
         def go_prev():
             st.session_state.view_idx -= 1
-            
         def go_next():
             st.session_state.view_idx += 1
             
@@ -377,14 +375,27 @@ if not st.session_state.ledger.empty:
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
             
+            # ★ 마우스 호버 시 특정 플레이어 강조(하이라이트) 기능 추가
+            highlight = alt.selection_point(on='pointerover', fields=['플레이어'], nearest=True)
+            
             chart = alt.Chart(melted_df).mark_line(point=True).encode(
                 x=alt.X('회차_번호:Q', 
                         scale=alt.Scale(domainMin=1), 
                         axis=alt.Axis(tickMinStep=1, format='d', title='회차')), 
                 y=alt.Y('누적금액:Q', title='누적 수익 (원)'),
                 color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어")),
+                
+                # 마우스를 올린 플레이어는 불투명(1.0), 나머지는 희미하게(0.2)
+                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2)),
+                
+                # 마우스를 올린 플레이어의 선을 살짝 더 두껍게(3px) 강조
+                strokeWidth=alt.condition(highlight, alt.value(3), alt.value(1.5)),
+                
                 tooltip=['회차_번호', '플레이어', '누적금액']
+            ).add_params(
+                highlight
             )
+            
             st.altair_chart(chart, use_container_width=True)
         else:
             st.info("아직 누적 그래프를 그릴 회차 데이터가 없습니다.")
