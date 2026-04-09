@@ -52,7 +52,6 @@ def load_data_from_sheet(client):
                 data[0][0] = "총 누적"
                     
             df = pd.DataFrame(data, columns=["회차", "고", "손", "장", "전", "황", "문", "날짜", "송금상태", "sheet_row"])
-            
             df = df[(df['회차'] == '총 누적') | (df['고'].astype(str).str.strip() != '')]
             
             for col in ["고", "손", "장", "전", "황", "문"]:
@@ -193,7 +192,6 @@ if calculate_btn and client:
         target_row = None
         for i, row in enumerate(all_values):
             if i < 2: continue
-            
             if len(row) < 2 or str(row[1]).strip() == "":
                 target_row = i + 1
                 break
@@ -354,6 +352,7 @@ if not st.session_state.ledger.empty:
         
     with col2:
         st.subheader("📈 플레이어별 누적 금액 변화")
+        st.caption("💡 오른쪽 범례에서 플레이어 이름을 클릭하면 해당 선이 강조됩니다. 다시 클릭하면 해제됩니다.")
         
         chart_base_df = temp_df[temp_df['sort_key'] > 0].copy()
         
@@ -361,7 +360,6 @@ if not st.session_state.ledger.empty:
             calc_df = chart_base_df.drop(columns=['sort_key', '날짜', '송금상태', 'sheet_row'], errors='ignore').set_index('회차').fillna(0)
             cumulative_df = calc_df.cumsum()
             
-            # 빈 구간(참여 전 0 구간) NaN 처리
             for p in players:
                 if p in cumulative_df.columns:
                     if cumulative_df[p].any():
@@ -375,32 +373,29 @@ if not st.session_state.ledger.empty:
             chart_df['회차_번호'] = chart_base_df['sort_key'].values
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
-            
-            # ★ 완벽하게 작동하는 하이라이트 세팅
+
+            # ★ 범례 클릭으로 선택 → 선택 없으면 전부 진하게, 선택하면 해당 선만 강조
             highlight = alt.selection_point(
-                on='pointerover', 
-                fields=['플레이어'], 
-                clear='mouseout',
-                empty=True # 마우스를 떼면 이 값이 True가 되면서 전체 선이 원래대로 진하게 보입니다.
+                fields=['플레이어'],
+                bind='legend',  # 범례 클릭으로 선택
+                empty=True      # 선택 없을 때 전부 진하게
             )
-            
-            # 단일 차트에 하이라이트 파라미터를 붙이고 선, 점, 툴팁을 한 번에 처리합니다.
-            chart = alt.Chart(melted_df).mark_line(
-                point=alt.OverlayMarkDef(size=80) # 마우스가 잘 인식되도록 점(Point) 크기 확대
-            ).encode(
-                x=alt.X('회차_번호:Q', 
-                        scale=alt.Scale(domainMin=1), 
-                        axis=alt.Axis(tickMinStep=1, format='d', title='회차')), 
+
+            base = alt.Chart(melted_df).encode(
+                x=alt.X('회차_번호:Q',
+                        scale=alt.Scale(domainMin=1),
+                        axis=alt.Axis(tickMinStep=1, format='d', title='회차')),
                 y=alt.Y('누적금액:Q', title='누적 수익 (원)'),
                 color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어")),
-                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.1)),
-                size=alt.condition(highlight, alt.value(4), alt.value(1.5)),
-                tooltip=['회차_번호', '플레이어', '누적금액']
-            ).add_params(
-                highlight
             )
-            
-            st.altair_chart(chart, use_container_width=True)
+
+            lines = base.mark_line(point=True).encode(
+                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.15)),
+                strokeWidth=alt.condition(highlight, alt.value(3), alt.value(1.5)),
+                tooltip=['회차_번호', '플레이어', '누적금액']
+            ).add_params(highlight)
+
+            st.altair_chart(lines, use_container_width=True)
         else:
             st.info("아직 누적 그래프를 그릴 회차 데이터가 없습니다.")
 else:
