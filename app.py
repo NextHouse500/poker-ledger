@@ -375,11 +375,12 @@ if not st.session_state.ledger.empty:
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
             
-            # ★ 완벽하게 작동하는 하이라이트 (에러 나는 복잡한 조건문 제거!)
+            # ★ 수정된 부분: nearest=True 삭제, clear='mouseout' 추가, 기본값(empty) True 유지
             highlight = alt.selection_point(
                 on='pointerover', 
                 fields=['플레이어'], 
-                clear='mouseout'
+                clear='mouseout',
+                empty=True
             )
             
             base = alt.Chart(melted_df).encode(
@@ -390,26 +391,25 @@ if not st.session_state.ledger.empty:
                 color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어"))
             )
             
-            # 1. 실제 보여지는 꺾은선 (아무것도 안 건드리면 1.0, 마우스 올리면 걔만 1.0, 나머지는 0.2)
+            # 1. 마우스 인식을 위한 '두꺼운 투명 선' (이 선 근처에 가면 해당 플레이어 인식)
+            selectors = base.mark_line(size=30, opacity=0).add_params(
+                highlight
+            )
+            
+            # 2. 실제 화면에 그려지는 꺾은선 (마우스를 올리거나, 아무것도 선택 안 됐을 땐 모두 진하게)
             lines = base.mark_line().encode(
-                size=alt.condition(highlight, alt.value(4), alt.value(1.5)),
+                size=alt.condition(highlight, alt.value(3), alt.value(1.5)),
                 opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2))
             )
             
-            # 2. 동그란 점 표시
+            # 3. 데이터 포인트 점
             visible_points = base.mark_circle(size=60).encode(
-                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2))
-            )
-
-            # 3. 보이지 않는 두꺼운 마우스 추적선 (이걸 맨 위에 그려야 마우스가 안 가려짐)
-            selectors = base.mark_line(size=30, opacity=0.01).add_params(
-                highlight
-            ).encode(
+                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2)),
                 tooltip=['회차_번호', '플레이어', '누적금액']
             )
             
-            # 레이어 겹치기 순서: 실제그림(밑) + 추적선(위)
-            chart = (lines + visible_points + selectors)
+            # 레이어 결합
+            chart = (selectors + lines + visible_points)
             
             st.altair_chart(chart, use_container_width=True)
         else:
