@@ -355,6 +355,13 @@ if not st.session_state.ledger.empty:
     with col2:
         st.subheader("📈 플레이어별 누적 금액 변화")
         
+        # ★ 차트의 자바스크립트 버그를 피하기 위해, 스트림릿 기본 버튼(Radio)을 추가합니다.
+        selected_player = st.radio(
+            "🔍 강조해서 볼 플레이어를 선택하세요:",
+            options=["전체 보기"] + players,
+            horizontal=True
+        )
+        
         chart_base_df = temp_df[temp_df['sort_key'] > 0].copy()
         
         if not chart_base_df.empty:
@@ -375,32 +382,29 @@ if not st.session_state.ledger.empty:
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
             
-            # ★ 핵심: '클릭' 감지기 생성 (우측 범례 클릭도 지원)
-            click_highlight = alt.selection_point(
-                fields=['플레이어'], 
-                bind='legend' # 범례(Legend)의 이름을 클릭해도 하이라이트 작동!
-            )
-            
             base = alt.Chart(melted_df).encode(
                 x=alt.X('회차_번호:Q', 
                         scale=alt.Scale(domainMin=1), 
                         axis=alt.Axis(tickMinStep=1, format='d', title='회차')), 
                 y=alt.Y('누적금액:Q', title='누적 수익 (원)'),
-                color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어 (클릭!)"))
+                color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어"))
             )
             
-            # 선택된 선은 두껍고(3) 진하게(1.0), 선택되지 않은 선은 얇고(1) 흐리게(0.2)
-            lines = base.mark_line().encode(
-                size=alt.condition(click_highlight, alt.value(3), alt.value(1)),
-                opacity=alt.condition(click_highlight, alt.value(1.0), alt.value(0.2))
-            ).add_params(
-                click_highlight
-            )
-            
-            visible_points = base.mark_circle(size=60).encode(
-                opacity=alt.condition(click_highlight, alt.value(1.0), alt.value(0.2)),
-                tooltip=['회차_번호', '플레이어', '누적금액']
-            )
+            # ★ 사용자가 선택한 버튼 값에 따라 파이썬이 차트를 새로 그립니다. (에러 0%)
+            if selected_player == "전체 보기":
+                lines = base.mark_line(size=2.5, opacity=1.0)
+                visible_points = base.mark_circle(size=60, opacity=1.0).encode(
+                    tooltip=['회차_번호', '플레이어', '누적금액']
+                )
+            else:
+                lines = base.mark_line().encode(
+                    size=alt.condition(alt.datum.플레이어 == selected_player, alt.value(4.5), alt.value(1.0)),
+                    opacity=alt.condition(alt.datum.플레이어 == selected_player, alt.value(1.0), alt.value(0.15))
+                )
+                visible_points = base.mark_circle(size=60).encode(
+                    opacity=alt.condition(alt.datum.플레이어 == selected_player, alt.value(1.0), alt.value(0.15)),
+                    tooltip=['회차_번호', '플레이어', '누적금액']
+                )
             
             chart = (lines + visible_points)
             
