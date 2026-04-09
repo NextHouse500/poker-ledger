@@ -375,14 +375,16 @@ if not st.session_state.ledger.empty:
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
             
-            # ★ 수정된 부분: nearest=True 삭제, clear='mouseout' 추가, 기본값(empty) True 유지
+            # 1. 마우스 추적기: 밖으로 나가면(clear) 자동으로 모든 데이터가 선택된 상태(empty=True)가 됨
             highlight = alt.selection_point(
                 on='pointerover', 
                 fields=['플레이어'], 
+                nearest=True,
                 clear='mouseout',
-                empty=True
+                empty=True 
             )
             
+            # 2. 공통 차트 바탕
             base = alt.Chart(melted_df).encode(
                 x=alt.X('회차_번호:Q', 
                         scale=alt.Scale(domainMin=1), 
@@ -391,25 +393,26 @@ if not st.session_state.ledger.empty:
                 color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어"))
             )
             
-            # 1. 마우스 인식을 위한 '두꺼운 투명 선' (이 선 근처에 가면 해당 플레이어 인식)
-            selectors = base.mark_line(size=30, opacity=0).add_params(
-                highlight
-            )
-            
-            # 2. 실제 화면에 그려지는 꺾은선 (마우스를 올리거나, 아무것도 선택 안 됐을 땐 모두 진하게)
+            # 3. 맨 밑 레이어: 꺾은선
             lines = base.mark_line().encode(
-                size=alt.condition(highlight, alt.value(3), alt.value(1.5)),
-                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2))
+                size=alt.condition(highlight, alt.value(4), alt.value(1.5)),
+                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.15))
             )
             
-            # 3. 데이터 포인트 점
+            # 4. 중간 레이어: 시각용 점
             visible_points = base.mark_circle(size=60).encode(
-                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2)),
+                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.15))
+            )
+            
+            # 5. 맨 위 레이어: 마우스 감지용 넓고 투명한 점 (반드시 마지막에 더해야 꺾은선에 가려지지 않음!)
+            selectors = base.mark_circle(size=400, opacity=0).add_params(
+                highlight
+            ).encode(
                 tooltip=['회차_번호', '플레이어', '누적금액']
             )
             
-            # 레이어 결합
-            chart = (selectors + lines + visible_points)
+            # ★ 레이어 쌓는 순서 (밑 -> 위)
+            chart = (lines + visible_points + selectors)
             
             st.altair_chart(chart, use_container_width=True)
         else:
