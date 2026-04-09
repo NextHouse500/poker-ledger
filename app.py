@@ -374,39 +374,37 @@ if not st.session_state.ledger.empty:
             chart_df['회차_번호'] = chart_base_df['sort_key'].values
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
-            
-            # ★ 마우스 호버 이벤트를 넓게 잡기 위한 선택자
-            highlight = alt.selection_point(on='pointerover', fields=['플레이어'], nearest=True)
-            
-            # 공통 데이터 세팅
+
+            # ★ 수정된 하이라이트 기능
+            highlight = alt.selection_point(
+                on='pointerover',
+                fields=['플레이어'],
+                nearest=True,
+                empty=True  # 마우스가 밖에 있을 때 전부 진하게
+            )
+
             base = alt.Chart(melted_df).encode(
-                x=alt.X('회차_번호:Q', 
-                        scale=alt.Scale(domainMin=1), 
-                        axis=alt.Axis(tickMinStep=1, format='d', title='회차')), 
+                x=alt.X('회차_번호:Q',
+                        scale=alt.Scale(domainMin=1),
+                        axis=alt.Axis(tickMinStep=1, format='d', title='회차')),
                 y=alt.Y('누적금액:Q', title='누적 수익 (원)'),
-                color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어"))
+                color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어")),
             )
-            
-            # 1. 마우스 인식을 위한 보이지 않는 넓은 점 (레이더 역할)
-            points = base.mark_circle(size=300, opacity=0).add_params(
-                highlight
-            )
-            
-            # 2. 실제 그려지는 꺾은선 (마우스 호버 시 굵고 뚜렷하게)
+
+            # 선 레이어 - selection에 반응해서 opacity/두께 변화
             lines = base.mark_line().encode(
-                size=alt.condition(highlight, alt.value(4), alt.value(1.5)),
-                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2))
-            )
-            
-            # 3. 데이터 포인트를 보여주고 툴팁을 띄우는 점
-            visible_points = base.mark_circle(size=60).encode(
                 opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2)),
-                tooltip=['회차_번호', '플레이어', '누적금액']
+                strokeWidth=alt.condition(highlight, alt.value(3), alt.value(1.5)),
             )
-            
-            # 레이어 겹치기
-            chart = (points + lines + visible_points)
-            
+
+            # 포인트 레이어 - 마우스 이벤트를 실제로 감지하는 역할
+            points = base.mark_point().encode(
+                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.0)),
+                tooltip=['회차_번호', '플레이어', '누적금액']
+            ).add_params(highlight)
+
+            chart = lines + points
+
             st.altair_chart(chart, use_container_width=True)
         else:
             st.info("아직 누적 그래프를 그릴 회차 데이터가 없습니다.")
