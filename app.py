@@ -375,14 +375,10 @@ if not st.session_state.ledger.empty:
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
             
-            # ★ 핵심 1: 투명도 조절용 감지기 (마우스 빼면 모두 True 취급 -> 다 진해짐)
-            hover_opacity = alt.selection_point(
-                name='hover_opacity', on='pointerover', fields=['플레이어'], nearest=True, clear='mouseout', empty=True
-            )
-            
-            # ★ 핵심 2: 굵기 조절용 감지기 (마우스 빼면 모두 False 취급 -> 다 얇아짐)
-            hover_size = alt.selection_point(
-                name='hover_size', on='pointerover', fields=['플레이어'], nearest=True, clear='mouseout', empty=False
+            # ★ 핵심: '클릭' 감지기 생성 (우측 범례 클릭도 지원)
+            click_highlight = alt.selection_point(
+                fields=['플레이어'], 
+                bind='legend' # 범례(Legend)의 이름을 클릭해도 하이라이트 작동!
             )
             
             base = alt.Chart(melted_df).encode(
@@ -390,26 +386,23 @@ if not st.session_state.ledger.empty:
                         scale=alt.Scale(domainMin=1), 
                         axis=alt.Axis(tickMinStep=1, format='d', title='회차')), 
                 y=alt.Y('누적금액:Q', title='누적 수익 (원)'),
-                color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어"))
+                color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어 (클릭!)"))
             )
             
-            # 감지기 2개를 투명 점에 한 번에 부착
-            points = base.mark_circle(size=300, opacity=0).add_params(
-                hover_opacity, hover_size
-            )
-            
-            # 굵기와 투명도를 각각의 감지기에 연결
+            # 선택된 선은 두껍고(3) 진하게(1.0), 선택되지 않은 선은 얇고(1) 흐리게(0.2)
             lines = base.mark_line().encode(
-                size=alt.condition(hover_size, alt.value(4), alt.value(1.5)),
-                opacity=alt.condition(hover_opacity, alt.value(1.0), alt.value(0.2))
+                size=alt.condition(click_highlight, alt.value(3), alt.value(1)),
+                opacity=alt.condition(click_highlight, alt.value(1.0), alt.value(0.2))
+            ).add_params(
+                click_highlight
             )
             
             visible_points = base.mark_circle(size=60).encode(
-                opacity=alt.condition(hover_opacity, alt.value(1.0), alt.value(0.2)),
+                opacity=alt.condition(click_highlight, alt.value(1.0), alt.value(0.2)),
                 tooltip=['회차_번호', '플레이어', '누적금액']
             )
             
-            chart = (points + lines + visible_points)
+            chart = (lines + visible_points)
             
             st.altair_chart(chart, use_container_width=True)
         else:
