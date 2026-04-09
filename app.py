@@ -361,7 +361,6 @@ if not st.session_state.ledger.empty:
             calc_df = chart_base_df.drop(columns=['sort_key', '날짜', '송금상태', 'sheet_row'], errors='ignore').set_index('회차').fillna(0)
             cumulative_df = calc_df.cumsum()
             
-            # 빈 구간(참여 전 0 구간) NaN 처리
             for p in players:
                 if p in cumulative_df.columns:
                     if cumulative_df[p].any():
@@ -375,45 +374,36 @@ if not st.session_state.ledger.empty:
             chart_df['회차_번호'] = chart_base_df['sort_key'].values
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
-            
-            # ★ 완벽하게 수정된 하이라이트 기능
+
+            # ★ 수정된 하이라이트 기능
             highlight = alt.selection_point(
-                on='pointerover', 
-                fields=['플레이어'], 
-                clear='mouseout',
-                empty=True # 밖으로 나가면 모두 True(선택됨) 처리하여 전부 진하게 표시
-            )
-            
-            base = alt.Chart(melted_df).encode(
-                x=alt.X('회차_번호:Q', 
-                        scale=alt.Scale(domainMin=1), 
-                        axis=alt.Axis(tickMinStep=1, format='d', title='회차')), 
-                y=alt.Y('누적금액:Q', title='누적 수익 (원)'),
-                color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어"))
-            )
-            
-            # 1. 시각적 선 (마우스 올리면 진해지고 나머지는 흐려짐)
-            lines = base.mark_line().encode(
-                size=alt.condition(highlight, alt.value(3), alt.value(1.5)),
-                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2))
-            )
-            
-            # 2. 시각적 점
-            visible_points = base.mark_circle(size=60).encode(
-                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2))
+                on='pointerover',
+                fields=['플레이어'],
+                nearest=True,
+                empty=True,
+                clear='mouseout'  # 마우스가 벗어나면 selection 초기화 → 전부 진하게
             )
 
-            # 3. 마우스 인식용 투명 두꺼운 선 (레이어 맨 위에 있어야 함!)
-            # opacity=0.01로 두어야 웹 브라우저가 마우스를 인식합니다.
-            selectors = base.mark_line(size=30, opacity=0.01).add_params(
-                highlight
-            ).encode(
-                tooltip=['회차_번호', '플레이어', '누적금액'] # 툴팁도 맨 위 레이어에 달아줍니다.
+            base = alt.Chart(melted_df).encode(
+                x=alt.X('회차_번호:Q',
+                        scale=alt.Scale(domainMin=1),
+                        axis=alt.Axis(tickMinStep=1, format='d', title='회차')),
+                y=alt.Y('누적금액:Q', title='누적 수익 (원)'),
+                color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어")),
             )
-            
-            # ★ 순서 매우 중요: lines -> points -> selectors(맨 위)
-            chart = (lines + visible_points + selectors)
-            
+
+            lines = base.mark_line().encode(
+                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2)),
+                strokeWidth=alt.condition(highlight, alt.value(3), alt.value(1.5)),
+            )
+
+            points = base.mark_point().encode(
+                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.0)),
+                tooltip=['회차_번호', '플레이어', '누적금액']
+            ).add_params(highlight)
+
+            chart = lines + points
+
             st.altair_chart(chart, use_container_width=True)
         else:
             st.info("아직 누적 그래프를 그릴 회차 데이터가 없습니다.")
