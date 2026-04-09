@@ -376,7 +376,7 @@ if not st.session_state.ledger.empty:
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
             
             # ★ 마우스 호버 이벤트를 넓게 잡기 위한 선택자
-            highlight = alt.selection_point(on='pointerover', fields=['플레이어'], nearest=True, empty=True, clear='mouseout')
+            highlight = alt.selection_point(on='pointerover', fields=['플레이어'], nearest=True)
             
             # 공통 데이터 세팅
             base = alt.Chart(melted_df).encode(
