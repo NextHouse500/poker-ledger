@@ -375,16 +375,16 @@ if not st.session_state.ledger.empty:
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
             
-            # 1. 마우스 추적기: 밖으로 나가면(clear) 자동으로 모든 데이터가 선택된 상태(empty=True)가 됨
-            highlight = alt.selection_point(
-                on='pointerover', 
-                fields=['플레이어'], 
-                nearest=True,
-                clear='mouseout',
-                empty=True 
+            # ★ 핵심 1: 투명도 조절용 감지기 (마우스 빼면 모두 True 취급 -> 다 진해짐)
+            hover_opacity = alt.selection_point(
+                name='hover_opacity', on='pointerover', fields=['플레이어'], nearest=True, clear='mouseout', empty=True
             )
             
-            # 2. 공통 차트 바탕
+            # ★ 핵심 2: 굵기 조절용 감지기 (마우스 빼면 모두 False 취급 -> 다 얇아짐)
+            hover_size = alt.selection_point(
+                name='hover_size', on='pointerover', fields=['플레이어'], nearest=True, clear='mouseout', empty=False
+            )
+            
             base = alt.Chart(melted_df).encode(
                 x=alt.X('회차_번호:Q', 
                         scale=alt.Scale(domainMin=1), 
@@ -393,26 +393,23 @@ if not st.session_state.ledger.empty:
                 color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어"))
             )
             
-            # 3. 맨 밑 레이어: 꺾은선
+            # 감지기 2개를 투명 점에 한 번에 부착
+            points = base.mark_circle(size=300, opacity=0).add_params(
+                hover_opacity, hover_size
+            )
+            
+            # 굵기와 투명도를 각각의 감지기에 연결
             lines = base.mark_line().encode(
-                size=alt.condition(highlight, alt.value(4), alt.value(1.5)),
-                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.15))
+                size=alt.condition(hover_size, alt.value(4), alt.value(1.5)),
+                opacity=alt.condition(hover_opacity, alt.value(1.0), alt.value(0.2))
             )
             
-            # 4. 중간 레이어: 시각용 점
             visible_points = base.mark_circle(size=60).encode(
-                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.15))
-            )
-            
-            # 5. 맨 위 레이어: 마우스 감지용 넓고 투명한 점 (반드시 마지막에 더해야 꺾은선에 가려지지 않음!)
-            selectors = base.mark_circle(size=400, opacity=0).add_params(
-                highlight
-            ).encode(
+                opacity=alt.condition(hover_opacity, alt.value(1.0), alt.value(0.2)),
                 tooltip=['회차_번호', '플레이어', '누적금액']
             )
             
-            # ★ 레이어 쌓는 순서 (밑 -> 위)
-            chart = (lines + visible_points + selectors)
+            chart = (points + lines + visible_points)
             
             st.altair_chart(chart, use_container_width=True)
         else:
