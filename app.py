@@ -375,12 +375,11 @@ if not st.session_state.ledger.empty:
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
             
-            # ★ Altair 공식 예제를 활용한 완벽한 하이라이트 설정
+            # ★ 완벽하게 작동하는 하이라이트 (에러 나는 복잡한 조건문 제거!)
             highlight = alt.selection_point(
-                on='pointerover',
-                fields=['플레이어'],
-                nearest=True,
-                empty=False  # ★ 밖으로 나가면 빈 상태(False)가 되도록 설정
+                on='pointerover', 
+                fields=['플레이어'], 
+                clear='mouseout'
             )
             
             base = alt.Chart(melted_df).encode(
@@ -391,33 +390,26 @@ if not st.session_state.ledger.empty:
                 color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어"))
             )
             
-            # 투명한 선 (마우스 추적용)
-            transparent_lines = base.mark_line(size=30, opacity=0, tooltip=False).add_params(
-                highlight
-            )
-            
-            # 실제 보이는 선 (기본: 진함, 마우스 올린 선이 '아닌' 애들만 흐리게 만듦)
+            # 1. 실제 보여지는 꺾은선 (아무것도 안 건드리면 1.0, 마우스 올리면 걔만 1.0, 나머지는 0.2)
             lines = base.mark_line().encode(
                 size=alt.condition(highlight, alt.value(4), alt.value(1.5)),
-                # ★ 핵심 로직 변경: 선택된 게 없으면 1.0(진함), 선택된 게 있으면 걔만 1.0, 나머진 0.2(흐림)
-                opacity=alt.condition(
-                    ~highlight & highlight.selected, 
-                    alt.value(0.2), 
-                    alt.value(1.0)
-                )
+                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2))
             )
             
-            # 툴팁 표시용 점
-            points = base.mark_circle(size=60).encode(
-                opacity=alt.condition(
-                    ~highlight & highlight.selected, 
-                    alt.value(0.2), 
-                    alt.value(1.0)
-                ),
+            # 2. 동그란 점 표시
+            visible_points = base.mark_circle(size=60).encode(
+                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2))
+            )
+
+            # 3. 보이지 않는 두꺼운 마우스 추적선 (이걸 맨 위에 그려야 마우스가 안 가려짐)
+            selectors = base.mark_line(size=30, opacity=0.01).add_params(
+                highlight
+            ).encode(
                 tooltip=['회차_번호', '플레이어', '누적금액']
             )
             
-            chart = (transparent_lines + lines + points)
+            # 레이어 겹치기 순서: 실제그림(밑) + 추적선(위)
+            chart = (lines + visible_points + selectors)
             
             st.altair_chart(chart, use_container_width=True)
         else:
