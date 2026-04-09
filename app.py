@@ -361,6 +361,7 @@ if not st.session_state.ledger.empty:
             calc_df = chart_base_df.drop(columns=['sort_key', '날짜', '송금상태', 'sheet_row'], errors='ignore').set_index('회차').fillna(0)
             cumulative_df = calc_df.cumsum()
             
+            # 빈 구간(참여 전 0 구간) NaN 처리
             for p in players:
                 if p in cumulative_df.columns:
                     if cumulative_df[p].any():
@@ -375,12 +376,12 @@ if not st.session_state.ledger.empty:
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
             
-            # ★ 수정된 부분: nearest=True 삭제, clear='mouseout' 추가, 기본값(empty) True 유지
+            # ★ 완벽하게 수정된 하이라이트 기능
             highlight = alt.selection_point(
                 on='pointerover', 
                 fields=['플레이어'], 
                 clear='mouseout',
-                empty=True
+                empty=True # 밖으로 나가면 모두 True(선택됨) 처리하여 전부 진하게 표시
             )
             
             base = alt.Chart(melted_df).encode(
@@ -391,25 +392,27 @@ if not st.session_state.ledger.empty:
                 color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어"))
             )
             
-            # 1. 마우스 인식을 위한 '두꺼운 투명 선' (이 선 근처에 가면 해당 플레이어 인식)
-            selectors = base.mark_line(size=30, opacity=0).add_params(
-                highlight
-            )
-            
-            # 2. 실제 화면에 그려지는 꺾은선 (마우스를 올리거나, 아무것도 선택 안 됐을 땐 모두 진하게)
+            # 1. 시각적 선 (마우스 올리면 진해지고 나머지는 흐려짐)
             lines = base.mark_line().encode(
                 size=alt.condition(highlight, alt.value(3), alt.value(1.5)),
                 opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2))
             )
             
-            # 3. 데이터 포인트 점
+            # 2. 시각적 점
             visible_points = base.mark_circle(size=60).encode(
-                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2)),
-                tooltip=['회차_번호', '플레이어', '누적금액']
+                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2))
+            )
+
+            # 3. 마우스 인식용 투명 두꺼운 선 (레이어 맨 위에 있어야 함!)
+            # opacity=0.01로 두어야 웹 브라우저가 마우스를 인식합니다.
+            selectors = base.mark_line(size=30, opacity=0.01).add_params(
+                highlight
+            ).encode(
+                tooltip=['회차_번호', '플레이어', '누적금액'] # 툴팁도 맨 위 레이어에 달아줍니다.
             )
             
-            # 레이어 결합
-            chart = (selectors + lines + visible_points)
+            # ★ 순서 매우 중요: lines -> points -> selectors(맨 위)
+            chart = (lines + visible_points + selectors)
             
             st.altair_chart(chart, use_container_width=True)
         else:
