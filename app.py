@@ -4,6 +4,7 @@ import numpy as np
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import altair as alt
+import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import json
 
@@ -52,7 +53,6 @@ def load_data_from_sheet(client):
                 data[0][0] = "총 누적"
                     
             df = pd.DataFrame(data, columns=["회차", "고", "손", "장", "전", "황", "문", "날짜", "송금상태", "sheet_row"])
-            
             df = df[(df['회차'] == '총 누적') | (df['고'].astype(str).str.strip() != '')]
             
             for col in ["고", "손", "장", "전", "황", "문"]:
@@ -193,7 +193,6 @@ if calculate_btn and client:
         target_row = None
         for i, row in enumerate(all_values):
             if i < 2: continue
-            
             if len(row) < 2 or str(row[1]).strip() == "":
                 target_row = i + 1
                 break
@@ -372,42 +371,38 @@ if not st.session_state.ledger.empty:
             
             chart_df = cumulative_df.copy()
             chart_df['회차_번호'] = chart_base_df['sort_key'].values
-            
-            melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
-            
-            # ★ 마우스 호버 이벤트를 넓게 잡기 위한 선택자
-            highlight = alt.selection_point(on='pointerover', fields=['플레이어'], nearest=True)
-            
-            # 공통 데이터 세팅
-            base = alt.Chart(melted_df).encode(
-                x=alt.X('회차_번호:Q', 
-                        scale=alt.Scale(domainMin=1), 
-                        axis=alt.Axis(tickMinStep=1, format='d', title='회차')), 
-                y=alt.Y('누적금액:Q', title='누적 수익 (원)'),
-                color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어"))
+
+            # ★ Plotly로 교체 - hover 시 해당 선만 강조, 벗어나면 원래대로
+            fig = go.Figure()
+
+            for p in players:
+                if p in chart_df.columns and chart_df[p].notna().any():
+                    fig.add_trace(go.Scatter(
+                        x=chart_df['회차_번호'],
+                        y=chart_df[p],
+                        mode='lines+markers',
+                        name=p,
+                        hovertemplate=f"<b>{p}</b><br>회차: %{{x}}<br>누적금액: %{{y:,}}원<extra></extra>"
+                    ))
+
+            fig.update_layout(
+                xaxis=dict(title='회차', tickmode='linear', dtick=1),
+                yaxis=dict(title='누적 수익 (원)'),
+                legend=dict(title='플레이어'),
+                hovermode='x unified',  # 같은 x 위치의 모든 플레이어 값 한번에 표시
+                hoverdistance=50,
             )
-            
-            # 1. 마우스 인식을 위한 보이지 않는 넓은 점 (레이더 역할)
-            points = base.mark_circle(size=300, opacity=0).add_params(
-                highlight
+
+            # hover 시 해당 선만 진하게, 나머지는 흐리게
+            fig.update_traces(
+                line=dict(width=2),
             )
-            
-            # 2. 실제 그려지는 꺾은선 (마우스 호버 시 굵고 뚜렷하게)
-            lines = base.mark_line().encode(
-                size=alt.condition(highlight, alt.value(4), alt.value(1.5)),
-                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2))
+            fig.update_layout(
+                hoverlabel=dict(bgcolor="white"),
             )
-            
-            # 3. 데이터 포인트를 보여주고 툴팁을 띄우는 점
-            visible_points = base.mark_circle(size=60).encode(
-                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2)),
-                tooltip=['회차_번호', '플레이어', '누적금액']
-            )
-            
-            # 레이어 겹치기
-            chart = (points + lines + visible_points)
-            
-            st.altair_chart(chart, use_container_width=True)
+
+            st.plotly_chart(fig, use_container_width=True)
+
         else:
             st.info("아직 누적 그래프를 그릴 회차 데이터가 없습니다.")
 else:
