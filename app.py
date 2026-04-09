@@ -375,13 +375,12 @@ if not st.session_state.ledger.empty:
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
             
-            # ★ 핵심 수정: clear='mouseout' 추가 및 empty=True 로 기본값을 '모두 선택됨(진하게)' 상태로 설정
+            # ★ Altair 공식 예제를 활용한 완벽한 하이라이트 설정
             highlight = alt.selection_point(
-                on='pointerover', 
-                fields=['플레이어'], 
+                on='pointerover',
+                fields=['플레이어'],
                 nearest=True,
-                clear='mouseout',
-                empty=True
+                empty=False  # ★ 밖으로 나가면 빈 상태(False)가 되도록 설정
             )
             
             base = alt.Chart(melted_df).encode(
@@ -392,21 +391,33 @@ if not st.session_state.ledger.empty:
                 color=alt.Color('플레이어:N', legend=alt.Legend(title="플레이어"))
             )
             
-            points = base.mark_circle(size=300, opacity=0).add_params(
+            # 투명한 선 (마우스 추적용)
+            transparent_lines = base.mark_line(size=30, opacity=0, tooltip=False).add_params(
                 highlight
             )
             
+            # 실제 보이는 선 (기본: 진함, 마우스 올린 선이 '아닌' 애들만 흐리게 만듦)
             lines = base.mark_line().encode(
                 size=alt.condition(highlight, alt.value(4), alt.value(1.5)),
-                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2))
+                # ★ 핵심 로직 변경: 선택된 게 없으면 1.0(진함), 선택된 게 있으면 걔만 1.0, 나머진 0.2(흐림)
+                opacity=alt.condition(
+                    ~highlight & highlight.selected, 
+                    alt.value(0.2), 
+                    alt.value(1.0)
+                )
             )
             
-            visible_points = base.mark_circle(size=60).encode(
-                opacity=alt.condition(highlight, alt.value(1.0), alt.value(0.2)),
+            # 툴팁 표시용 점
+            points = base.mark_circle(size=60).encode(
+                opacity=alt.condition(
+                    ~highlight & highlight.selected, 
+                    alt.value(0.2), 
+                    alt.value(1.0)
+                ),
                 tooltip=['회차_번호', '플레이어', '누적금액']
             )
             
-            chart = (points + lines + visible_points)
+            chart = (transparent_lines + lines + points)
             
             st.altair_chart(chart, use_container_width=True)
         else:
