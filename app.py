@@ -118,7 +118,11 @@ def calculate_transfers(adjusted_amounts):
     return transactions
 
 st.set_page_config(page_title="포커 기록장", layout="wide")
+
+# ★ 메인 타이틀 생성
 st.title("🃏 가계부")
+# ★ 공간을 차지하지 않도록 음수 마진(-40px)을 주어 타이틀 우측 상단에 배치
+st.markdown("<div style='text-align: right; font-size: 13px; color: #888888; margin-top: -40px; margin-bottom: 20px;'>made by Jang</div>", unsafe_allow_html=True)
 
 client = get_gsheet_client()
 
@@ -326,15 +330,15 @@ if not st.session_state.ledger.empty:
                             st.error(f"저장 실패: {e}")
                             
         # ---------------------------------------------------------
-        # ★ 새로 추가된 기능: 전체 미수금 리스트 (아직 안 받은 돈 모아보기)
+        # ★ 미수금 리스트 섹션
         # ---------------------------------------------------------
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
-        st.markdown("### 🚨 미수금 리스트 (아직 정산되지 않은 내역)")
+        # ★ 요청하신 대로 제목 변경
+        st.markdown("### 🚨 미수금 리스트 🚨")
         
         unpaid_data = []
         original_statuses = {}
         
-        # 모든 회차를 돌면서 체크 안 된 항목 수집
         for idx, row in valid_rounds_df.iterrows():
             s_row = row.get('sheet_row')
             if pd.isna(s_row): continue
@@ -350,7 +354,6 @@ if not st.session_state.ledger.empty:
             transfers = calculate_transfers(t_amts)
             
             for t_key, t_text in transfers:
-                # 상태가 False이거나 아예 데이터가 없으면 미수금
                 if not status.get(t_key, False):
                     unpaid_data.append({
                         "sheet_row": s_row,
@@ -366,8 +369,8 @@ if not st.session_state.ledger.empty:
                 unpaid_df,
                 hide_index=True,
                 column_config={
-                    "sheet_row": None,  # 숨김 처리
-                    "t_key": None,      # 숨김 처리
+                    "sheet_row": None,  
+                    "t_key": None,      
                     "회차": st.column_config.TextColumn("회차", disabled=True),
                     "송금 내역": st.column_config.TextColumn("송금 내역", disabled=True),
                     "완료": st.column_config.CheckboxColumn("✅ 확인")
@@ -378,8 +381,6 @@ if not st.session_state.ledger.empty:
             
             if st.button("💾 선택한 미수금 일괄 완료 처리", type="primary", use_container_width=True):
                 updates_by_row = {}
-                
-                # 체크된 항목만 찾아서 원본 JSON에 병합
                 for _, r in edited_unpaid.iterrows():
                     if r["완료"]:
                         sr = r["sheet_row"]
@@ -398,10 +399,10 @@ if not st.session_state.ledger.empty:
                                     'range': f'I{sr}',
                                     'values': [[json.dumps(new_stat, ensure_ascii=False)]]
                                 })
-                            sheet.batch_update(batch_data) # 여러 회차를 한 번에 통신(최적화)
+                            sheet.batch_update(batch_data)
                             st.session_state.ledger = load_data_from_sheet(client)
                             st.success("✅ 선택한 미수금이 성공적으로 완료 처리되었습니다!")
-                            st.rerun() # 화면 새로고침하여 미수금 리스트 업데이트
+                            st.rerun()
                         except Exception as e:
                             st.error(f"저장 실패: {e}")
                 else:
@@ -460,11 +461,9 @@ if not st.session_state.ledger.empty:
             
             melted_df = chart_df.melt(id_vars=['회차_번호'], var_name='플레이어', value_name='누적금액')
             
-            # --- 🌟 레이아웃 분리: 상단(그래프) & 하단(체크박스) ---
             chart_container = st.container()
             control_container = st.container()
             
-            # 1. 하단 체크박스 그리기 (선택된 데이터 수집)
             with control_container:
                 st.markdown("##### 🔍 그래프에 표시할 사람 선택")
                 cols = st.columns(len(players))
@@ -474,7 +473,6 @@ if not st.session_state.ledger.empty:
                         if st.checkbox(p, value=True, key=f"filter_{p}"):
                             selected_players.append(p)
             
-            # 2. 상단 그래프 그리기
             with chart_container:
                 if selected_players:
                     filtered_df = melted_df[melted_df['플레이어'].isin(selected_players)]
