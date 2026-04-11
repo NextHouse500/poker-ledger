@@ -324,6 +324,91 @@ if not st.session_state.ledger.empty:
                             st.success("✅ 저장되었습니다!")
                         except Exception as e:
                             st.error(f"저장 실패: {e}")
+                            
+        # ---------------------------------------------------------
+        # ★ 새로 추가된 기능: 전체 미수금 리스트 (아직 안 받은 돈 모아보기)
+        # ---------------------------------------------------------
+        st.markdown("<br><hr><br>", unsafe_allow_html=True)
+        st.markdown("### 🚨 미수금 리스트 (아직 정산되지 않은 내역)")
+        
+        unpaid_data = []
+        original_statuses = {}
+        
+        # 모든 회차를 돌면서 체크 안 된 항목 수집
+        for idx, row in valid_rounds_df.iterrows():
+            s_row = row.get('sheet_row')
+            if pd.isna(s_row): continue
+                
+            s_str = row.get('송금상태', '{}')
+            try:
+                status = json.loads(s_str) if s_str else {}
+            except:
+                status = {}
+                
+            original_statuses[s_row] = status
+            t_amts = {p: int(row[p]) for p in players}
+            transfers = calculate_transfers(t_amts)
+            
+            for t_key, t_text in transfers:
+                # 상태가 False이거나 아예 데이터가 없으면 미수금
+                if not status.get(t_key, False):
+                    unpaid_data.append({
+                        "sheet_row": s_row,
+                        "t_key": t_key,
+                        "회차": row['회차'],
+                        "송금 내역": f"💸 {t_text}",
+                        "완료": False
+                    })
+                    
+        if unpaid_data:
+            unpaid_df = pd.DataFrame(unpaid_data)
+            edited_unpaid = st.data_editor(
+                unpaid_df,
+                hide_index=True,
+                column_config={
+                    "sheet_row": None,  # 숨김 처리
+                    "t_key": None,      # 숨김 처리
+                    "회차": st.column_config.TextColumn("회차", disabled=True),
+                    "송금 내역": st.column_config.TextColumn("송금 내역", disabled=True),
+                    "완료": st.column_config.CheckboxColumn("✅ 확인")
+                },
+                use_container_width=True,
+                key="unpaid_editor"
+            )
+            
+            if st.button("💾 선택한 미수금 일괄 완료 처리", type="primary", use_container_width=True):
+                updates_by_row = {}
+                
+                # 체크된 항목만 찾아서 원본 JSON에 병합
+                for _, r in edited_unpaid.iterrows():
+                    if r["완료"]:
+                        sr = r["sheet_row"]
+                        tk = r["t_key"]
+                        if sr not in updates_by_row:
+                            updates_by_row[sr] = original_statuses[sr].copy()
+                        updates_by_row[sr][tk] = True
+                        
+                if updates_by_row:
+                    with st.spinner("구글 시트에 미수금 정산 저장 중..."):
+                        try:
+                            sheet = client.open(SHEET_NAME).sheet1
+                            batch_data = []
+                            for sr, new_stat in updates_by_row.items():
+                                batch_data.append({
+                                    'range': f'I{sr}',
+                                    'values': [[json.dumps(new_stat, ensure_ascii=False)]]
+                                })
+                            sheet.batch_update(batch_data) # 여러 회차를 한 번에 통신(최적화)
+                            st.session_state.ledger = load_data_from_sheet(client)
+                            st.success("✅ 선택한 미수금이 성공적으로 완료 처리되었습니다!")
+                            st.rerun() # 화면 새로고침하여 미수금 리스트 업데이트
+                        except Exception as e:
+                            st.error(f"저장 실패: {e}")
+                else:
+                    st.warning("체크된 항목이 없습니다. 완료할 내역을 체크해 주세요.")
+        else:
+            st.success("🎉 모든 회차의 정산이 완벽하게 끝났습니다! (미수금 0원)")
+
     else:
         st.info("아직 완료된 회차가 없습니다.")
 else:
@@ -386,7 +471,6 @@ if not st.session_state.ledger.empty:
                 selected_players = []
                 for i, p in enumerate(players):
                     with cols[i]:
-                        # value=True를 줘서 처음에 모두 체크된 상태로 만듭니다.
                         if st.checkbox(p, value=True, key=f"filter_{p}"):
                             selected_players.append(p)
             
@@ -395,7 +479,6 @@ if not st.session_state.ledger.empty:
                 if selected_players:
                     filtered_df = melted_df[melted_df['플레이어'].isin(selected_players)]
                     
-                    # ★ 업로드하신 이미지의 색상을 완벽히 매칭하여 고정했습니다!
                     fixed_colors = alt.Scale(
                         domain=["고", "손", "장", "전", "황", "문"],
                         range=['#5897D8', '#FF6E6E', '#FFC5C5', '#70CDB6', '#AAEFAD', '#A5D6FF']
